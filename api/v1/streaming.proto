@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package streaming.v1;
+
+option go_package = "github.com/Brijeshlakkad/api/streaming_v1";
+
+service Streaming {
+    rpc ConsumeStream(ConsumeRequest) returns (stream ConsumeResponse) {}
+}
+
+message ConsumeRequest {
+    string url = 1;
+}
+
+message ConsumeResponse {
+    bytes frame = 1;
+}
