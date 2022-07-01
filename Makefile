@@ -4,9 +4,52 @@ CONFIG_PATH=${HOME}/.goutube/
 init:
 	mkdir -p ${CONFIG_PATH}
 
+.PHONY: gencert
+gencert:
+	cfssl gencert \
+		-initca cert/ca-csr.json | cfssljson -bare ca
+
+	cfssl gencert \
+		-ca=ca.pem \
+		-ca-key=ca-key.pem \
+		-config=cert/ca-config.json \
+		-profile=server \
+		cert/server-csr.json | cfssljson -bare server
+
+	cfssl gencert \
+		-ca=ca.pem \
+		-ca-key=ca-key.pem \
+		-config=cert/ca-config.json \
+		-profile=client \
+		cert/client-csr.json | cfssljson -bare client
+
+	cfssl gencert \
+		-ca=ca.pem \
+		-ca-key=ca-key.pem \
+		-config=cert/ca-config.json \
+		-profile=client \
+		-cn="root" \
+		cert/client-csr.json | cfssljson -bare root-client
+
+	cfssl gencert \
+		-ca=ca.pem \
+		-ca-key=ca-key.pem \
+		-config=cert/ca-config.json \
+		-profile=client \
+		-cn="nobody" \
+		cert/client-csr.json | cfssljson -bare nobody-client
+	
+	mv *.pem *.csr ${CONFIG_PATH}
+
+$(CONFIG_PATH)/model.conf:
+	cp cert/model.conf $(CONFIG_PATH)/model.conf
+
+$(CONFIG_PATH)/policy.csv:
+	cp cert/policy.csv $(CONFIG_PATH)/policy.csv
+
 .PHONY: test
-test:
-	go test -v ./...
+test: $(CONFIG_PATH)/policy.csv $(CONFIG_PATH)/model.conf
+	go test -race ./...
 
 .PHONY: compile
 compile:

@@ -1,0 +1,16 @@
+{
+    "CN": "Goutube",
+    "key": {
+        "algo": "rsa",
+        "size": 2048
+    },
+    "names": [
+        {
+            "C": "CA",
+            "L": "QC",
+            "ST": "Montreal",
+            "O": "Goutube",
+            "OU": "Goutube Services"
+        }
+    ]
+}

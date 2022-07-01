@@ -9,8 +9,11 @@ import (
 	"testing"
 
 	api "github.com/Brijeshlakkad/goutube/api/v1"
+	"github.com/Brijeshlakkad/goutube/internal/auth"
+	"github.com/Brijeshlakkad/goutube/internal/config"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
 func TestServer(t *testing.T) {
@@ -28,14 +31,43 @@ func setupServer(t *testing.T, fn func()) (
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 
-	gRPCServer, err := NewStreamingServer()
+	// Configure the server’s TLS credentials.
+	serverTLSConfig, err := config.SetupTLSConfig(config.TLSConfig{
+		CertFile:      config.ServerCertFile,
+		KeyFile:       config.ServerKeyFile,
+		CAFile:        config.CAFile,
+		ServerAddress: l.Addr().String(),
+		Server:        true,
+	})
+	require.NoError(t, err)
+	serverCreds := credentials.NewTLS(serverTLSConfig)
+
+	authorizer := auth.New(
+		config.ACLModelFile,
+		config.ACLPolicyFile,
+	)
+
+	cfg := &Config{
+		Authorizer: authorizer,
+	}
+
+	gRPCServer, err := NewStreamingServer(cfg, grpc.Creds(serverCreds))
 	require.NoError(t, err)
 
 	go func() {
 		gRPCServer.Serve(l)
 	}()
 
-	opts := []grpc.DialOption{grpc.WithInsecure()}
+	tlsConfig, err := config.SetupTLSConfig(config.TLSConfig{
+		CertFile: config.RootClientCertFile,
+		KeyFile:  config.RootClientKeyFile,
+		CAFile:   config.CAFile,
+		Server:   false,
+	})
+	require.NoError(t, err)
+
+	tlsCreds := credentials.NewTLS(tlsConfig)
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(tlsCreds)}
 	conn, err := grpc.Dial(l.Addr().String(), opts...)
 	require.NoError(t, err)
 
