@@ -106,6 +106,10 @@ func (p *Point) Close() error {
 
 	if p.buf != nil {
 		err := p.buf.Flush()
+		_, ok := err.(*os.PathError)
+		if ok {
+			return nil
+		}
 		if err != nil {
 			return err
 		}

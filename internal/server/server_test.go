@@ -1,13 +1,12 @@
 package server
 
 import (
-	"bufio"
 	"context"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
 	"net"
-	"os"
 	"testing"
 
 	api "github.com/Brijeshlakkad/goutube/api/v1"
@@ -22,6 +21,7 @@ import (
 var (
 	locusId = "goutube-client"
 	pointId = "sample_file"
+	lines   = 10
 )
 
 func TestServer(t *testing.T) {
@@ -106,6 +106,8 @@ func setupTest(t *testing.T, fn func()) (
 		gRPCServer.Stop()
 		conn.Close()
 		l.Close()
+		err := lociManager.RemoveAll()
+		fmt.Println(err)
 	}
 }
 
@@ -113,17 +115,8 @@ func testProduceConsumeStream(t *testing.T, client api.StreamingClient, config *
 	stream, err := client.ProduceStream(context.Background())
 	require.NoError(t, err)
 
-	// File url (will be path in the future)
-	file, err := os.Open("../../test/resources/sample_1")
-	defer file.Close()
-	require.NoError(t, err)
-
-	fileScanner := bufio.NewScanner(file)
-
-	fileScanner.Split(bufio.ScanLines)
-
-	for fileScanner.Scan() {
-		err := stream.Send(&api.ProduceRequest{Locus: locusId, Point: pointId, Frame: fileScanner.Bytes()})
+	for i := 0; i < lines; i++ {
+		err := stream.Send(&api.ProduceRequest{Locus: locusId, Point: pointId, Frame: []byte(fmt.Sprintln(i))})
 		require.NoError(t, err)
 	}
 
@@ -134,16 +127,21 @@ func testProduceConsumeStream(t *testing.T, client api.StreamingClient, config *
 	require.Equal(t, locusId, resp.Points[0].Locus)
 	require.Equal(t, pointId, resp.Points[0].Point)
 
+	// test consume stream
 	resStream, err := client.ConsumeStream(context.Background(), &api.ConsumeRequest{Locus: locusId, Point: pointId})
 	if err != nil {
 		log.Fatalf("error while calling ConsumeStream RPC: %v", err)
 	}
-	for {
-		_, err := resStream.Recv()
+	i := 0
+	for i = 0; i < lines; i++ {
+		resp, err := resStream.Recv()
 		if err == io.EOF {
 			// we've reached the end of the stream
 			break
 		}
 		require.NoError(t, err)
+		b := resp.GetFrame()
+		require.Equal(t, fmt.Sprintln(i), string(b))
 	}
+	require.Equal(t, lines, i)
 }

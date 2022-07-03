@@ -209,7 +209,7 @@ func (l *LociManager) RemoveAll() error {
 		}
 		delete(l.loci, locusId)
 	}
-	return nil
+	return os.RemoveAll(l.Dir)
 }
 
 func (l *LociManager) Reset() error {

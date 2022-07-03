@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/binary"
 	"io"
 
 	api "github.com/Brijeshlakkad/goutube/api/v1"
@@ -13,6 +14,10 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
+)
+
+var (
+	enc = binary.BigEndian
 )
 
 type StreamingManager struct {
@@ -49,6 +54,9 @@ func (s *StreamingManager) ProduceStream(stream api.Streaming_ProduceStreamServe
 		if err == io.EOF {
 			pointIds := make([]*api.PointId, 0, len(points))
 			for _, pointId := range points {
+				if err = s.LociManager.ClosePoint(pointId.Locus, pointId.Point); err != nil {
+					return err
+				}
 				pointIds = append(pointIds, pointId)
 			}
 			if err := stream.SendAndClose(&api.ProduceResponse{Points: pointIds}); err != nil {
@@ -59,12 +67,16 @@ func (s *StreamingManager) ProduceStream(stream api.Streaming_ProduceStreamServe
 		if err != nil {
 			return err
 		}
-		locusId, pointId, err := s.LociManager.AddPoint(req.GetLocus(), req.GetPoint(), true)
-		if err != nil {
-			return err
+		var locusId string = req.GetLocus()
+		var pointId string = req.GetPoint()
+		if _, ok := points[req.GetPoint()]; !ok {
+			// Check if the file is opened
+			locusId, pointId, err = s.LociManager.AddPoint(req.GetLocus(), req.GetPoint(), true)
+			if err != nil {
+				return err
+			}
+			points[pointId] = &api.PointId{Locus: locusId, Point: pointId}
 		}
-		points[pointId] = &api.PointId{Locus: locusId, Point: pointId}
-		defer s.LociManager.ClosePoint(locusId, pointId)
 
 		if _, err = s.LociManager.Append(locusId, pointId, req.GetFrame()); err != nil {
 			return err
@@ -84,18 +96,30 @@ func (s *StreamingManager) ConsumeStream(req *api.ConsumeRequest, stream api.Str
 	if err != nil {
 		return err
 	}
-	ci := uint64(0)
+	defer s.LociManager.ClosePoint(locusId, pointId)
+	off := int64(0)
+	lenWidth := 8
 	for {
 		select {
 		case <-stream.Context().Done():
 			return nil
 		default:
-			buf, err := s.LociManager.Read(locusId, pointId, ci)
-			if err != io.EOF {
+			buf := make([]byte, lenWidth)
+			n, err := s.LociManager.ReadAt(locusId, pointId, buf, off)
+			if err != nil {
 				return nil
 			}
-			ci++
-			if err = stream.Send(&api.ConsumeResponse{Frame: buf}); err != nil {
+			off += int64(n)
+
+			size := enc.Uint64(buf)
+			buf = make([]byte, size)
+			n, err = s.LociManager.ReadAt(locusId, pointId, buf, off)
+			if err != nil {
+				return err
+			}
+			off += int64(n)
+
+			if err := stream.Send(&api.ConsumeResponse{Frame: buf}); err != nil {
 				return err
 			}
 		}
@@ -127,6 +151,7 @@ type LociManager interface {
 	AddPoint(string, string, bool) (string, string, error)
 	Append(string, string, []byte) (uint64, error)
 	Read(string, string, uint64) ([]byte, error)
+	ReadAt(string, string, []byte, int64) (int, error)
 	ClosePoint(string, string) error
 }
 
