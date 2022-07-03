@@ -6,12 +6,29 @@ option go_package = "github.com/Brijeshlakkad/api/streaming_v1";
 
 service Streaming {
     rpc ConsumeStream(ConsumeRequest) returns (stream ConsumeResponse) {}
+    rpc ProduceStream(stream ProduceRequest) returns (ProduceResponse) {}
 }
 
 message ConsumeRequest {
-    string url = 1;
+    string locus = 1;
+    string point = 2;
 }
 
 message ConsumeResponse {
     bytes frame = 1;
+}
+
+message ProduceRequest {
+    string locus = 1;
+    string point = 2;
+    bytes frame = 3;
+}
+
+message PointId {
+    string locus = 1;
+    string point = 2;
+}
+
+message ProduceResponse {
+    repeated PointId points = 1;
 }

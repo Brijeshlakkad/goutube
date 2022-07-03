@@ -12,6 +12,14 @@ func Check(err error) {
 	}
 }
 
+func PanicValue(fn func()) (recovered interface{}) {
+	defer func() {
+		recovered = recover()
+	}()
+	fn()
+	return
+}
+
 // Build and run a service in a target directory
 func RunService(ctx context.Context, targetDir string, service string) {
 	// Save and restore later current working dir

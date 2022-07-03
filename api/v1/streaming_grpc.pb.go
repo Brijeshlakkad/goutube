@@ -18,6 +18,7 @@ const _ = grpc.SupportPackageIsVersion7
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type StreamingClient interface {
 	ConsumeStream(ctx context.Context, in *ConsumeRequest, opts ...grpc.CallOption) (Streaming_ConsumeStreamClient, error)
+	ProduceStream(ctx context.Context, opts ...grpc.CallOption) (Streaming_ProduceStreamClient, error)
 }
 
 type streamingClient struct {
@@ -60,11 +61,46 @@ func (x *streamingConsumeStreamClient) Recv() (*ConsumeResponse, error) {
 	return m, nil
 }
 
+func (c *streamingClient) ProduceStream(ctx context.Context, opts ...grpc.CallOption) (Streaming_ProduceStreamClient, error) {
+	stream, err := c.cc.NewStream(ctx, &_Streaming_serviceDesc.Streams[1], "/streaming.v1.Streaming/ProduceStream", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &streamingProduceStreamClient{stream}
+	return x, nil
+}
+
+type Streaming_ProduceStreamClient interface {
+	Send(*ProduceRequest) error
+	CloseAndRecv() (*ProduceResponse, error)
+	grpc.ClientStream
+}
+
+type streamingProduceStreamClient struct {
+	grpc.ClientStream
+}
+
+func (x *streamingProduceStreamClient) Send(m *ProduceRequest) error {
+	return x.ClientStream.SendMsg(m)
+}
+
+func (x *streamingProduceStreamClient) CloseAndRecv() (*ProduceResponse, error) {
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	m := new(ProduceResponse)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // StreamingServer is the server API for Streaming service.
 // All implementations must embed UnimplementedStreamingServer
 // for forward compatibility
 type StreamingServer interface {
 	ConsumeStream(*ConsumeRequest, Streaming_ConsumeStreamServer) error
+	ProduceStream(Streaming_ProduceStreamServer) error
 	mustEmbedUnimplementedStreamingServer()
 }
 
@@ -74,6 +110,9 @@ type UnimplementedStreamingServer struct {
 
 func (UnimplementedStreamingServer) ConsumeStream(*ConsumeRequest, Streaming_ConsumeStreamServer) error {
 	return status.Errorf(codes.Unimplemented, "method ConsumeStream not implemented")
+}
+func (UnimplementedStreamingServer) ProduceStream(Streaming_ProduceStreamServer) error {
+	return status.Errorf(codes.Unimplemented, "method ProduceStream not implemented")
 }
 func (UnimplementedStreamingServer) mustEmbedUnimplementedStreamingServer() {}
 
@@ -109,6 +148,32 @@ func (x *streamingConsumeStreamServer) Send(m *ConsumeResponse) error {
 	return x.ServerStream.SendMsg(m)
 }
 
+func _Streaming_ProduceStream_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(StreamingServer).ProduceStream(&streamingProduceStreamServer{stream})
+}
+
+type Streaming_ProduceStreamServer interface {
+	SendAndClose(*ProduceResponse) error
+	Recv() (*ProduceRequest, error)
+	grpc.ServerStream
+}
+
+type streamingProduceStreamServer struct {
+	grpc.ServerStream
+}
+
+func (x *streamingProduceStreamServer) SendAndClose(m *ProduceResponse) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func (x *streamingProduceStreamServer) Recv() (*ProduceRequest, error) {
+	m := new(ProduceRequest)
+	if err := x.ServerStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 var _Streaming_serviceDesc = grpc.ServiceDesc{
 	ServiceName: "streaming.v1.Streaming",
 	HandlerType: (*StreamingServer)(nil),
@@ -118,6 +183,11 @@ var _Streaming_serviceDesc = grpc.ServiceDesc{
 			StreamName:    "ConsumeStream",
 			Handler:       _Streaming_ConsumeStream_Handler,
 			ServerStreams: true,
+		},
+		{
+			StreamName:    "ProduceStream",
+			Handler:       _Streaming_ProduceStream_Handler,
+			ClientStreams: true,
 		},
 	},
 	Metadata: "api/v1/streaming.proto",
