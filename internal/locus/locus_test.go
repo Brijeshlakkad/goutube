@@ -5,7 +5,7 @@ import (
 	"io/ioutil"
 	"testing"
 
-	api "github.com/Brijeshlakkad/goutube/api/v1"
+	streaming_api "github.com/Brijeshlakkad/goutube/api/streaming/v1"
 	. "github.com/Brijeshlakkad/goutube/internal/test_util"
 	"github.com/stretchr/testify/require"
 )
@@ -82,7 +82,7 @@ func testPointNotFoundErr(t *testing.T, locus *Locus) {
 	pId := "locus-test-file-0"
 
 	_, err := locus.get(pId)
-	apiErr := err.(api.PointNotFound)
+	apiErr := err.(streaming_api.PointNotFound)
 	require.Equal(t, pId, apiErr.PointId)
 }
 
@@ -111,6 +111,6 @@ func testRemovePointer(t *testing.T, locus *Locus) {
 	err = locus.Remove(pId)
 
 	_, err = locus.Read(pId, 0)
-	apiErr := err.(api.PointNotFound)
+	apiErr := err.(streaming_api.PointNotFound)
 	require.Equal(t, pId, apiErr.PointId)
 }

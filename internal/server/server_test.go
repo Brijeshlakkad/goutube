@@ -9,7 +9,7 @@ import (
 	"net"
 	"testing"
 
-	api "github.com/Brijeshlakkad/goutube/api/v1"
+	streaming_api "github.com/Brijeshlakkad/goutube/api/streaming/v1"
 	"github.com/Brijeshlakkad/goutube/internal/auth"
 	"github.com/Brijeshlakkad/goutube/internal/config"
 	"github.com/Brijeshlakkad/goutube/internal/locus"
@@ -27,7 +27,7 @@ var (
 func TestServer(t *testing.T) {
 	for scenario, fn := range map[string]func(
 		t *testing.T,
-		client api.StreamingClient,
+		client streaming_api.StreamingClient,
 		config *Config,
 	){
 		"produce/consume stream succeeds": testProduceConsumeStream,
@@ -41,7 +41,7 @@ func TestServer(t *testing.T) {
 }
 
 func setupTest(t *testing.T, fn func()) (
-	api.StreamingClient,
+	streaming_api.StreamingClient,
 	*Config,
 	func(),
 ) {
@@ -97,7 +97,7 @@ func setupTest(t *testing.T, fn func()) (
 	conn, err := grpc.Dial(l.Addr().String(), opts...)
 	require.NoError(t, err)
 
-	client := api.NewStreamingClient(conn)
+	client := streaming_api.NewStreamingClient(conn)
 
 	if fn != nil {
 		fn()
@@ -111,12 +111,12 @@ func setupTest(t *testing.T, fn func()) (
 	}
 }
 
-func testProduceConsumeStream(t *testing.T, client api.StreamingClient, config *Config) {
+func testProduceConsumeStream(t *testing.T, client streaming_api.StreamingClient, config *Config) {
 	stream, err := client.ProduceStream(context.Background())
 	require.NoError(t, err)
 
 	for i := 0; i < lines; i++ {
-		err := stream.Send(&api.ProduceRequest{Locus: locusId, Point: pointId, Frame: []byte(fmt.Sprintln(i))})
+		err := stream.Send(&streaming_api.ProduceRequest{Locus: locusId, Point: pointId, Frame: []byte(fmt.Sprintln(i))})
 		require.NoError(t, err)
 	}
 
@@ -128,7 +128,7 @@ func testProduceConsumeStream(t *testing.T, client api.StreamingClient, config *
 	require.Equal(t, pointId, resp.Points[0].Point)
 
 	// test consume stream
-	resStream, err := client.ConsumeStream(context.Background(), &api.ConsumeRequest{Locus: locusId, Point: pointId})
+	resStream, err := client.ConsumeStream(context.Background(), &streaming_api.ConsumeRequest{Locus: locusId, Point: pointId})
 	if err != nil {
 		log.Fatalf("error while calling ConsumeStream RPC: %v", err)
 	}

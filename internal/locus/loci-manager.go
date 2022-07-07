@@ -5,7 +5,7 @@ import (
 	"os"
 	"sync"
 
-	api "github.com/Brijeshlakkad/goutube/api/v1"
+	streaming_api "github.com/Brijeshlakkad/goutube/api/streaming/v1"
 )
 
 type LociManager struct {
@@ -51,7 +51,7 @@ func (l *LociManager) AddLocus(locusId string) (string, error) {
 
 	lo, err := l.get(locusId)
 	if err != nil {
-		_, ok := err.(api.LocusNotFound)
+		_, ok := err.(streaming_api.LocusNotFound)
 		if ok {
 			lo, err = newLocus(l.Dir, locusId, l.Config)
 			if err != nil {
@@ -72,7 +72,7 @@ func (l *LociManager) AddPoint(locusId string, pointId string, open bool) (strin
 
 	lo, err := l.get(locusId)
 	if err != nil {
-		_, ok := err.(api.LocusNotFound)
+		_, ok := err.(streaming_api.LocusNotFound)
 		if ok {
 			lo, err = newLocus(l.Dir, locusId, l.Config)
 			if err != nil {
@@ -100,7 +100,7 @@ func (l *LociManager) List() []*Locus {
 func (l *LociManager) get(locusId string) (*Locus, error) {
 	p, ok := l.loci[locusId]
 	if !ok {
-		return nil, api.LocusNotFound{LocusId: locusId}
+		return nil, streaming_api.LocusNotFound{LocusId: locusId}
 	}
 	return p, nil
 }

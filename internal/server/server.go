@@ -5,7 +5,7 @@ import (
 	"encoding/binary"
 	"io"
 
-	api "github.com/Brijeshlakkad/goutube/api/v1"
+	streaming_api "github.com/Brijeshlakkad/goutube/api/streaming/v1"
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_auth "github.com/grpc-ecosystem/go-grpc-middleware/auth"
 	"go.opencensus.io/plugin/ocgrpc"
@@ -21,7 +21,7 @@ var (
 )
 
 type StreamingManager struct {
-	api.UnimplementedStreamingServer
+	streaming_api.UnimplementedStreamingServer
 	*Config
 }
 
@@ -40,7 +40,7 @@ type Config struct {
 	Authorizer  Authorizer
 }
 
-func (s *StreamingManager) ProduceStream(stream api.Streaming_ProduceStreamServer) error {
+func (s *StreamingManager) ProduceStream(stream streaming_api.Streaming_ProduceStreamServer) error {
 	if err := s.Authorizer.Authorize(
 		subject(stream.Context()),
 		objectWildCard,
@@ -48,18 +48,18 @@ func (s *StreamingManager) ProduceStream(stream api.Streaming_ProduceStreamServe
 	); err != nil {
 		return err
 	}
-	points := make(map[string]*api.PointId)
+	points := make(map[string]*streaming_api.PointId)
 	for {
 		req, err := stream.Recv()
 		if err == io.EOF {
-			pointIds := make([]*api.PointId, 0, len(points))
+			pointIds := make([]*streaming_api.PointId, 0, len(points))
 			for _, pointId := range points {
 				if err = s.LociManager.ClosePoint(pointId.Locus, pointId.Point); err != nil {
 					return err
 				}
 				pointIds = append(pointIds, pointId)
 			}
-			if err := stream.SendAndClose(&api.ProduceResponse{Points: pointIds}); err != nil {
+			if err := stream.SendAndClose(&streaming_api.ProduceResponse{Points: pointIds}); err != nil {
 				return err
 			}
 			return nil
@@ -75,7 +75,7 @@ func (s *StreamingManager) ProduceStream(stream api.Streaming_ProduceStreamServe
 			if err != nil {
 				return err
 			}
-			points[pointId] = &api.PointId{Locus: locusId, Point: pointId}
+			points[pointId] = &streaming_api.PointId{Locus: locusId, Point: pointId}
 		}
 
 		if _, err = s.LociManager.Append(locusId, pointId, req.GetFrame()); err != nil {
@@ -84,7 +84,7 @@ func (s *StreamingManager) ProduceStream(stream api.Streaming_ProduceStreamServe
 	}
 }
 
-func (s *StreamingManager) ConsumeStream(req *api.ConsumeRequest, stream api.Streaming_ConsumeStreamServer) error {
+func (s *StreamingManager) ConsumeStream(req *streaming_api.ConsumeRequest, stream streaming_api.Streaming_ConsumeStreamServer) error {
 	if err := s.Authorizer.Authorize(
 		subject(stream.Context()),
 		objectWildCard,
@@ -119,7 +119,7 @@ func (s *StreamingManager) ConsumeStream(req *api.ConsumeRequest, stream api.Str
 			}
 			off += int64(n)
 
-			if err := stream.Send(&api.ConsumeResponse{Frame: buf}); err != nil {
+			if err := stream.Send(&streaming_api.ConsumeResponse{Frame: buf}); err != nil {
 				return err
 			}
 		}
@@ -142,7 +142,7 @@ func NewStreamingServer(config *Config, opts ...grpc.ServerOption) (*grpc.Server
 		grpc.StatsHandler(&ocgrpc.ServerHandler{}),
 	)
 	gRPCServer := grpc.NewServer(opts...)
-	api.RegisterStreamingServer(gRPCServer, sm)
+	streaming_api.RegisterStreamingServer(gRPCServer, sm)
 	return gRPCServer, nil
 }
 

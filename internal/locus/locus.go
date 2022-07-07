@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	api "github.com/Brijeshlakkad/goutube/api/v1"
+	streaming_api "github.com/Brijeshlakkad/goutube/api/streaming/v1"
 )
 
 type Locus struct {
@@ -56,7 +56,7 @@ func (l *Locus) add(pointId string, open bool) (string, error) {
 
 	p, err := l.get(pointId)
 	if err != nil {
-		_, ok := err.(api.PointNotFound)
+		_, ok := err.(streaming_api.PointNotFound)
 		if ok {
 			p, err = newPoint(l.locusDir, pointId, open)
 			if err != nil {
@@ -86,7 +86,7 @@ func (l *Locus) List() []*Point {
 func (l *Locus) get(pointId string) (*Point, error) {
 	p, ok := l.points[pointId]
 	if !ok {
-		return nil, api.PointNotFound{PointId: pointId}
+		return nil, streaming_api.PointNotFound{PointId: pointId}
 	}
 	return p, nil
 }

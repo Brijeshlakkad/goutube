@@ -5,7 +5,7 @@ import (
 	"io/ioutil"
 	"testing"
 
-	api "github.com/Brijeshlakkad/goutube/api/v1"
+	streaming_api "github.com/Brijeshlakkad/goutube/api/streaming/v1"
 	. "github.com/Brijeshlakkad/goutube/internal/test_util"
 	"github.com/stretchr/testify/require"
 )
@@ -77,7 +77,7 @@ func testLocusShouldFound(t *testing.T, lm *LociManager) {
 
 func testLocusNotFoundErr(t *testing.T, lm *LociManager) {
 	_, err := lm.get(locusId)
-	apiErr := err.(api.LocusNotFound)
+	apiErr := err.(streaming_api.LocusNotFound)
 	require.Equal(t, locusId, apiErr.LocusId)
 }
 
@@ -102,6 +102,6 @@ func testRemoveLocus(t *testing.T, lm *LociManager) {
 	err = lm.Remove(lId)
 
 	_, err = lm.Read(lId, pId, 0)
-	apiErr := err.(api.LocusNotFound)
+	apiErr := err.(streaming_api.LocusNotFound)
 	require.Equal(t, locusId, apiErr.LocusId)
 }

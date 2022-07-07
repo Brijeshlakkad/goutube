@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	api "github.com/Brijeshlakkad/goutube/api/v1"
+	streaming_api "github.com/Brijeshlakkad/goutube/api/streaming/v1"
 	"github.com/Brijeshlakkad/goutube/internal/agent"
 	"github.com/Brijeshlakkad/goutube/internal/config"
 	"github.com/stretchr/testify/require"
@@ -94,7 +94,7 @@ func TestAgent(t *testing.T) {
 	require.NoError(t, err)
 
 	for i := 0; i < lines; i++ {
-		err := stream.Send(&api.ProduceRequest{Locus: locusId, Point: pointId, Frame: []byte(fmt.Sprintln(i))})
+		err := stream.Send(&streaming_api.ProduceRequest{Locus: locusId, Point: pointId, Frame: []byte(fmt.Sprintln(i))})
 		require.NoError(t, err)
 	}
 
@@ -107,7 +107,7 @@ func TestAgent(t *testing.T) {
 
 	// test consume stream
 	followerClient := client(t, agents[1], peerTLSConfig)
-	resStream, err := followerClient.ConsumeStream(context.Background(), &api.ConsumeRequest{Locus: locusId, Point: pointId})
+	resStream, err := followerClient.ConsumeStream(context.Background(), &streaming_api.ConsumeRequest{Locus: locusId, Point: pointId})
 	if err != nil {
 		log.Fatalf("error while calling ConsumeStream RPC: %v", err)
 	}
@@ -129,13 +129,13 @@ func client(
 	t *testing.T,
 	agent *agent.Agent,
 	tlsConfig *tls.Config,
-) api.StreamingClient {
+) streaming_api.StreamingClient {
 	tlsCreds := credentials.NewTLS(tlsConfig)
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(tlsCreds)}
 	rpcAddr, err := agent.Config.RPCAddr()
 	require.NoError(t, err)
 	conn, err := grpc.Dial(rpcAddr, opts...)
 	require.NoError(t, err)
-	client := api.NewStreamingClient(conn)
+	client := streaming_api.NewStreamingClient(conn)
 	return client
 }

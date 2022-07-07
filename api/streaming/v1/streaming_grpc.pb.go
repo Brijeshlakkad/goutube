@@ -190,5 +190,5 @@ var _Streaming_serviceDesc = grpc.ServiceDesc{
 			ClientStreams: true,
 		},
 	},
-	Metadata: "api/v1/streaming.proto",
+	Metadata: "api/streaming/v1/streaming.proto",
 }
