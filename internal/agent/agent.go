@@ -7,6 +7,8 @@ import (
 	"sync"
 
 	"github.com/Brijeshlakkad/goutube/internal/auth"
+	"github.com/Brijeshlakkad/goutube/internal/discovery"
+	"github.com/Brijeshlakkad/goutube/internal/locus"
 	"github.com/Brijeshlakkad/goutube/internal/server"
 	"github.com/soheilhy/cmux"
 	"google.golang.org/grpc"
@@ -16,8 +18,10 @@ import (
 type Agent struct {
 	Config
 
-	mux    cmux.CMux
-	server *grpc.Server
+	mux         cmux.CMux
+	lociManager *locus.DistributedLociManager
+	server      *grpc.Server
+	membership  *discovery.Membership
 
 	shutdown     bool
 	shutdowns    chan struct{}
@@ -26,14 +30,22 @@ type Agent struct {
 
 type Config struct {
 	ServerTLSConfig *tls.Config // Served to clients.
-	Host            string
+	PeerTLSConfig   *tls.Config // Servers so they can connect with and replicate each other.
+	DataDir         string
+	BindAddr        string
 	RPCPort         int
+	NodeName        string
+	StartJoinAddrs  []string
 	ACLModelFile    string
 	ACLPolicyFile   string
 }
 
 func (c Config) RPCAddr() (string, error) {
-	return fmt.Sprintf("%s:%d", c.Host, c.RPCPort), nil
+	host, _, err := net.SplitHostPort(c.BindAddr)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s:%d", host, c.RPCPort), nil
 }
 
 func New(config Config) (*Agent, error) {
@@ -41,11 +53,17 @@ func New(config Config) (*Agent, error) {
 		Config:    config,
 		shutdowns: make(chan struct{}),
 	}
-	a.setupMux()
-	a.setupServer()
-
+	setup := []func() error{
+		a.setupMux,
+		a.setupServer,
+		a.setupMembership,
+	}
+	for _, fn := range setup {
+		if err := fn(); err != nil {
+			return nil, err
+		}
+	}
 	go a.serve()
-
 	return a, nil
 }
 
@@ -99,6 +117,22 @@ func (a *Agent) setupServer() error {
 	return err
 }
 
+func (a *Agent) setupMembership() error {
+	rpcAddr, err := a.Config.RPCAddr()
+	if err != nil {
+		return err
+	}
+	a.membership, err = discovery.New(a.lociManager, discovery.Config{
+		NodeName: a.Config.NodeName,
+		BindAddr: a.Config.BindAddr,
+		Tags: map[string]string{
+			"rpc_addr": rpcAddr,
+		},
+		StartJoinAddrs: a.Config.StartJoinAddrs,
+	})
+	return err
+}
+
 func (a *Agent) Shutdown() error {
 	a.shutdownLock.Lock()
 	defer a.shutdownLock.Unlock()
@@ -108,5 +142,18 @@ func (a *Agent) Shutdown() error {
 	a.shutdown = true
 	close(a.shutdowns)
 
+	shutdown := []func() error{
+		a.membership.Leave,
+		func() error {
+			a.server.GracefulStop()
+			return nil
+		},
+		a.lociManager.Close,
+	}
+	for _, fn := range shutdown {
+		if err := fn(); err != nil {
+			return err
+		}
+	}
 	return nil
 }

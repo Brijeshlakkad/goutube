@@ -1,15 +1,18 @@
-package agent
+package agent_test
 
 import (
 	"context"
 	"crypto/tls"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
+	"os"
 	"testing"
 	"time"
 
 	api "github.com/Brijeshlakkad/goutube/api/v1"
+	"github.com/Brijeshlakkad/goutube/internal/agent"
 	"github.com/Brijeshlakkad/goutube/internal/config"
 	"github.com/stretchr/testify/require"
 	"github.com/travisjeffery/go-dynaport"
@@ -27,24 +30,6 @@ func TestAgent(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	rpcPort := dynaport.Get(1)[0]
-
-	agent, err := New(Config{
-		RPCPort:         rpcPort,
-		ACLModelFile:    config.ACLModelFile,
-		ACLPolicyFile:   config.ACLPolicyFile,
-		ServerTLSConfig: serverTLSConfig,
-		Host:            "127.0.0.1",
-	})
-	require.NoError(t, err)
-
-	defer func() {
-		err := agent.Shutdown()
-		require.NoError(t, err)
-	}()
-
-	time.Sleep(3 * time.Second)
-
 	peerTLSConfig, err := config.SetupTLSConfig(config.TLSConfig{
 		CertFile:      config.RootClientCertFile,
 		KeyFile:       config.RootClientKeyFile,
@@ -54,31 +39,95 @@ func TestAgent(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	clientS := client(t, agent, peerTLSConfig)
+	var agents []*agent.Agent
+	for i := 0; i < 3; i++ {
+		ports := dynaport.Get(2)
+		bindAddr := fmt.Sprintf("%s:%d", "127.0.0.1", ports[0])
+		rpcPort := ports[1]
+
+		dataDir, err := ioutil.TempDir("", "agent-test-loci")
+		require.NoError(t, err)
+
+		var startJoinAddrs []string
+		if i != 0 {
+			startJoinAddrs = append(
+				startJoinAddrs,
+				agents[0].Config.BindAddr,
+			)
+		}
+
+		agent, err := agent.New(agent.Config{
+			NodeName:        fmt.Sprintf("%d", i),
+			StartJoinAddrs:  startJoinAddrs,
+			BindAddr:        bindAddr,
+			RPCPort:         rpcPort,
+			DataDir:         dataDir,
+			ACLModelFile:    config.ACLModelFile,
+			ACLPolicyFile:   config.ACLPolicyFile,
+			ServerTLSConfig: serverTLSConfig,
+			PeerTLSConfig:   peerTLSConfig,
+		})
+		require.NoError(t, err)
+
+		agents = append(agents, agent)
+	}
+	defer func() {
+		for _, agent := range agents {
+			err := agent.Shutdown()
+			require.NoError(t, err)
+			require.NoError(t,
+				os.RemoveAll(agent.Config.DataDir),
+			)
+		}
+	}()
+
+	time.Sleep(3 * time.Second)
+
+	var (
+		locusId = "goutube-client"
+		pointId = "sample_file"
+		lines   = 10
+	)
+
+	leaderClient := client(t, agents[0], peerTLSConfig)
+	stream, err := leaderClient.ProduceStream(context.Background())
 	require.NoError(t, err)
 
-	stream, err := clientS.ConsumeStream(
-		context.Background(),
-		&api.ConsumeRequest{Url: "../../test/resources/sample_1"},
-	)
+	for i := 0; i < lines; i++ {
+		err := stream.Send(&api.ProduceRequest{Locus: locusId, Point: pointId, Frame: []byte(fmt.Sprintln(i))})
+		require.NoError(t, err)
+	}
+
+	resp, err := stream.CloseAndRecv()
 	require.NoError(t, err)
+
+	require.Equal(t, 1, len(resp.Points))
+	require.Equal(t, locusId, resp.Points[0].Locus)
+	require.Equal(t, pointId, resp.Points[0].Point)
+
+	// test consume stream
+	followerClient := client(t, agents[1], peerTLSConfig)
+	resStream, err := followerClient.ConsumeStream(context.Background(), &api.ConsumeRequest{Locus: locusId, Point: pointId})
 	if err != nil {
 		log.Fatalf("error while calling ConsumeStream RPC: %v", err)
 	}
-	for {
-		res, err := stream.Recv()
+	i := 0
+	for i = 0; i < lines; i++ {
+		resp, err := resStream.Recv()
 		if err == io.EOF {
 			// we've reached the end of the stream
 			break
 		}
 		require.NoError(t, err)
-		fmt.Println(string(res.Frame))
+		b := resp.GetFrame()
+		require.Equal(t, fmt.Sprintln(i), string(b))
 	}
+	require.Equal(t, lines, i)
 }
 
 func client(
 	t *testing.T,
-	agent *Agent,
+	agent *agent.Agent,
 	tlsConfig *tls.Config,
 ) api.StreamingClient {
 	tlsCreds := credentials.NewTLS(tlsConfig)
