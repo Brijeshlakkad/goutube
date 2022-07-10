@@ -88,13 +88,22 @@ func (l *LociManager) AddPoint(locusId string, pointId string, open bool) (strin
 	return lo.locusId, pointId, err
 }
 
-func (l *LociManager) List() []*Locus {
-	list := make([]*Locus, 0, len(l.loci))
+func (l *LociManager) GetLoci() []string {
+	list := make([]string, 0, len(l.loci))
 
-	for _, locus := range l.loci {
-		list = append(list, locus)
+	for locusId, _ := range l.loci {
+		list = append(list, locusId)
 	}
 	return list
+}
+
+func (l *LociManager) GetPoints(locusId string) []string {
+	lo, err := l.get(locusId)
+	if err != nil {
+		return nil
+	}
+
+	return lo.GetPoints()
 }
 
 func (l *LociManager) get(locusId string) (*Locus, error) {

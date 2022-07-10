@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package replication.v1;
+
+option go_package = "github.com/Brijeshlakkad/api/replication_v1";
+
+service Replication {
+    rpc Replicate(ReplicateRequest) returns (stream ReplicateResponse) {}
+}
+
+message ReplicateRequest {
+}
+
+message ReplicateResponse {
+    string locus = 1;
+    string point = 2;
+    bytes frame = 3;
+}

@@ -6,6 +6,7 @@ import (
 	"net"
 	"sync"
 
+	streaming_api "github.com/Brijeshlakkad/goutube/api/streaming/v1"
 	"github.com/Brijeshlakkad/goutube/internal/auth"
 	"github.com/Brijeshlakkad/goutube/internal/discovery"
 	"github.com/Brijeshlakkad/goutube/internal/locus"
@@ -19,9 +20,10 @@ type Agent struct {
 	Config
 
 	mux         cmux.CMux
-	lociManager *locus.DistributedLociManager
+	lociManager *locus.LociManager
 	server      *grpc.Server
 	membership  *discovery.Membership
+	replicator  *locus.Replicator
 
 	shutdown     bool
 	shutdowns    chan struct{}
@@ -38,6 +40,7 @@ type Config struct {
 	StartJoinAddrs  []string
 	ACLModelFile    string
 	ACLPolicyFile   string
+	Bootstrap       bool
 }
 
 func (c Config) RPCAddr() (string, error) {
@@ -67,7 +70,6 @@ func New(config Config) (*Agent, error) {
 	return a, nil
 }
 
-// Accept both Raft and gRPC connections and then creates the mux with the listener.
 // Match connections based on your configured rules.
 func (a *Agent) setupMux() error {
 	rpcAddr := fmt.Sprintf(
@@ -96,7 +98,10 @@ func (a *Agent) setupServer() error {
 		a.Config.ACLPolicyFile,
 	)
 	serverConfig := &server.Config{
-		Authorizer: authorizer,
+		StreamingConfig: &server.StreamingConfig{
+			LociManager: a.lociManager,
+			Authorizer:  authorizer,
+		},
 	}
 	var opts []grpc.ServerOption
 	if a.Config.ServerTLSConfig != nil {
@@ -104,7 +109,7 @@ func (a *Agent) setupServer() error {
 		opts = append(opts, grpc.Creds(creds))
 	}
 	var err error
-	a.server, err = server.NewStreamingServer(serverConfig, opts...)
+	a.server, err = server.NewServer(serverConfig, opts...)
 	if err != nil {
 		return err
 	}
@@ -122,7 +127,22 @@ func (a *Agent) setupMembership() error {
 	if err != nil {
 		return err
 	}
-	a.membership, err = discovery.New(a.lociManager, discovery.Config{
+	var opts []grpc.DialOption
+	if a.Config.PeerTLSConfig != nil {
+		opts = append(opts, grpc.WithTransportCredentials(
+			credentials.NewTLS(a.Config.PeerTLSConfig),
+		))
+	}
+	conn, err := grpc.Dial(rpcAddr, opts...)
+	if err != nil {
+		return err
+	}
+	client := streaming_api.NewStreamingClient(conn)
+	a.replicator = &locus.Replicator{
+		DialOptions: opts,
+		LocalServer: client,
+	}
+	a.membership, err = discovery.New(a.replicator, discovery.Config{
 		NodeName: a.Config.NodeName,
 		BindAddr: a.Config.BindAddr,
 		Tags: map[string]string{
@@ -148,7 +168,7 @@ func (a *Agent) Shutdown() error {
 			a.server.GracefulStop()
 			return nil
 		},
-		a.lociManager.Close,
+		a.lociManager.CloseAll,
 	}
 	for _, fn := range shutdown {
 		if err := fn(); err != nil {

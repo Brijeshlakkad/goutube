@@ -1,14 +1,14 @@
 package discovery
 
 import (
+	"fmt"
 	"net"
 
-	"github.com/hashicorp/raft"
 	"github.com/hashicorp/serf/serf"
 	"go.uber.org/zap"
 )
 
-// Type wrapping Serf to provide discovery and cluster membership to our service.
+// Membership Type wrapping Serf to provide discovery and cluster membership to our service.
 type Membership struct {
 	Config
 	handler Handler
@@ -81,6 +81,8 @@ func (m *Membership) eventHandler() {
 }
 
 func (m *Membership) handleJoin(member serf.Member) {
+	fmt.Println("HandleJoin", member.Name)
+	fmt.Println(member.Tags["rpc_addr"])
 	if err := m.handler.Join(
 		member.Name,
 		member.Tags["rpc_addr"],
@@ -102,12 +104,12 @@ func (m *Membership) isLocal(member serf.Member) bool {
 	return m.cluster.LocalMember().Name == member.Name
 }
 
-// Returns a point-in-time snapshot of the cluster’s Serf members.
+// Members Returns a point-in-time snapshot of the cluster’s Serf members.
 func (m *Membership) Members() []serf.Member {
 	return m.cluster.Members()
 }
 
-// Tells this member to leave the Serf cluster.
+// Leave Tells this member to leave the Serf cluster.
 func (m *Membership) Leave() error {
 	return m.cluster.Leave()
 }
@@ -115,10 +117,6 @@ func (m *Membership) Leave() error {
 // Logs the given error and message.
 func (m *Membership) logError(err error, msg string, member serf.Member) {
 	log := m.logger.Error
-	// logError will log the non-leader errors at the debug level.
-	if err == raft.ErrNotLeader {
-		log = m.logger.Debug
-	}
 	log(
 		msg,
 		zap.Error(err),

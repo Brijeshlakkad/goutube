@@ -48,7 +48,7 @@ func testCreatePointers(t *testing.T, locus *Locus) {
 		require.NoError(t, err)
 	}
 
-	require.Equal(t, pointCount, len(locus.List()))
+	require.Equal(t, pointCount, len(locus.GetPoints()))
 }
 
 func testPointAppendRead(t *testing.T, locus *Locus) {

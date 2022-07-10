@@ -48,7 +48,7 @@ func testCreateLoci(t *testing.T, lm *LociManager) {
 		require.NoError(t, err)
 	}
 
-	require.Equal(t, locusCount, len(lm.List()))
+	require.Equal(t, locusCount, len(lm.GetLoci()))
 }
 
 func testLocusAppendRead(t *testing.T, lm *LociManager) {

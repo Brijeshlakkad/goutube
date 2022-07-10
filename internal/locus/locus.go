@@ -74,11 +74,11 @@ func (l *Locus) add(pointId string, open bool) (string, error) {
 	return p.pointId, nil
 }
 
-func (l *Locus) List() []*Point {
-	list := make([]*Point, 0, len(l.points))
+func (l *Locus) GetPoints() []string {
+	list := make([]string, 0, len(l.points))
 
-	for _, point := range l.points {
-		list = append(list, point)
+	for pointId, _ := range l.points {
+		list = append(list, pointId)
 	}
 	return list
 }
