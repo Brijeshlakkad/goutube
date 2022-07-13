@@ -1,12 +1,13 @@
 package agent
 
 import (
+	"bytes"
 	"crypto/tls"
 	"fmt"
+	"io"
 	"net"
 	"sync"
 
-	streaming_api "github.com/Brijeshlakkad/goutube/api/streaming/v1"
 	"github.com/Brijeshlakkad/goutube/internal/auth"
 	"github.com/Brijeshlakkad/goutube/internal/discovery"
 	"github.com/Brijeshlakkad/goutube/internal/locus"
@@ -19,11 +20,10 @@ import (
 type Agent struct {
 	Config
 
-	mux         cmux.CMux
-	lociManager *locus.LociManager
-	server      *grpc.Server
-	membership  *discovery.Membership
-	replicator  *locus.Replicator
+	mux        cmux.CMux
+	loci       *locus.DistributedLoci
+	server     *grpc.Server
+	membership *discovery.Membership
 
 	shutdown     bool
 	shutdowns    chan struct{}
@@ -58,6 +58,7 @@ func New(config Config) (*Agent, error) {
 	}
 	setup := []func() error{
 		a.setupMux,
+		a.setupLoci,
 		a.setupServer,
 		a.setupMembership,
 	}
@@ -92,6 +93,33 @@ func (a *Agent) serve() error {
 	return nil
 }
 
+func (a *Agent) setupLoci() error {
+	rpcAddr, err := a.Config.RPCAddr()
+	if err != nil {
+		return err
+	}
+	lociLn := a.mux.Match(func(reader io.Reader) bool {
+		b := make([]byte, 1)
+		if _, err := reader.Read(b); err != nil {
+			return false
+		}
+		return bytes.Compare(b, []byte{byte(locus.LociRPC)}) == 0
+	})
+
+	lociConfig := locus.Config{}
+	lociConfig.Distributed.StreamLayer = locus.NewStreamLayer(
+		lociLn,
+		a.Config.ServerTLSConfig,
+		a.Config.PeerTLSConfig,
+	)
+	lociConfig.Distributed.BindAdr = rpcAddr
+	lociConfig.Distributed.LocalID = a.Config.NodeName
+	lociConfig.Distributed.Bootstrap = a.Config.Bootstrap
+	a.loci, err = locus.NewDistributedLoci(a.Config.DataDir, lociConfig)
+	// TODO: Bootstrap
+	return err
+}
+
 func (a *Agent) setupServer() error {
 	authorizer := auth.New(
 		a.Config.ACLModelFile,
@@ -99,7 +127,7 @@ func (a *Agent) setupServer() error {
 	)
 	serverConfig := &server.Config{
 		StreamingConfig: &server.StreamingConfig{
-			LociManager: a.lociManager,
+			LociManager: a.loci,
 			Authorizer:  authorizer,
 		},
 	}
@@ -127,22 +155,7 @@ func (a *Agent) setupMembership() error {
 	if err != nil {
 		return err
 	}
-	var opts []grpc.DialOption
-	if a.Config.PeerTLSConfig != nil {
-		opts = append(opts, grpc.WithTransportCredentials(
-			credentials.NewTLS(a.Config.PeerTLSConfig),
-		))
-	}
-	conn, err := grpc.Dial(rpcAddr, opts...)
-	if err != nil {
-		return err
-	}
-	client := streaming_api.NewStreamingClient(conn)
-	a.replicator = &locus.Replicator{
-		DialOptions: opts,
-		LocalServer: client,
-	}
-	a.membership, err = discovery.New(a.replicator, discovery.Config{
+	a.membership, err = discovery.New(a.loci, discovery.Config{
 		NodeName: a.Config.NodeName,
 		BindAddr: a.Config.BindAddr,
 		Tags: map[string]string{
@@ -168,7 +181,7 @@ func (a *Agent) Shutdown() error {
 			a.server.GracefulStop()
 			return nil
 		},
-		a.lociManager.CloseAll,
+		a.loci.CloseAll,
 	}
 	for _, fn := range shutdown {
 		if err := fn(); err != nil {

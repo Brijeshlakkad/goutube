@@ -2,7 +2,9 @@ package locus
 
 type Config struct {
 	Distributed struct {
-		BindAdr   string
-		Bootstrap bool
+		BindAdr     string
+		LocalID     string
+		Bootstrap   bool
+		StreamLayer *StreamLayer
 	}
 }

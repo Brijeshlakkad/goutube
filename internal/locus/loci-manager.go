@@ -17,10 +17,6 @@ type LociManager struct {
 }
 
 func NewLociManager(dir string, config Config) (*LociManager, error) {
-	// Create a hierarchy of directories if necessary
-	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
-		return nil, err
-	}
 	l := &LociManager{
 		Config: config,
 		Dir:    dir,
