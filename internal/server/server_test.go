@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"testing"
+	"time"
 
 	replication_api "github.com/Brijeshlakkad/goutube/api/replication/v1"
 	streaming_api "github.com/Brijeshlakkad/goutube/api/streaming/v1"
@@ -34,8 +35,8 @@ func TestServer(t *testing.T) {
 		replicationClient replication_api.ReplicationClient,
 		config *Config,
 	){
-		"produce/consume stream succeeds": testProduceConsumeStream,
-		"replicate stream succeeds":       testReplicateStream,
+		"produce and consume stream succeeds": testProduceConsumeStream,
+		"replicate stream succeeds":           testReplicateStream,
 	} {
 		t.Run(scenario, func(t *testing.T) {
 			streamingClient, replicationClient, config, teardown := setupTest(t, nil)
@@ -75,7 +76,9 @@ func setupTest(t *testing.T, fn func()) (
 	dir, err := ioutil.TempDir("", "server-test")
 	require.NoError(t, err)
 
-	lociManager, err := locus.NewLociManager(dir, locus.Config{})
+	locusConfig := locus.Config{}
+	locusConfig.Point.CloseTimeout = 10 * time.Second
+	lociManager, err := locus.NewLociManager(dir, locusConfig)
 	require.NoError(t, err)
 
 	cfg := &Config{

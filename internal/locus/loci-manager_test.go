@@ -44,7 +44,7 @@ func testCreateLoci(t *testing.T, lm *LociManager) {
 	locusCount := 5
 	for i := 0; i < locusCount; i++ {
 		newLocusId := fmt.Sprintf("%s-%d", locusId, i)
-		_, err := lm.AddLocus(newLocusId)
+		_, err := lm.addLocus(newLocusId)
 		require.NoError(t, err)
 	}
 
@@ -52,26 +52,26 @@ func testCreateLoci(t *testing.T, lm *LociManager) {
 }
 
 func testLocusAppendRead(t *testing.T, lm *LociManager) {
-	lId, pId, err := lm.AddPoint(locusId, pointId, true)
+	locus, err := lm.addLocus(locusId)
 	require.NoError(t, err)
 
 	defer lm.Remove(locusId)
 
-	pos, err := lm.Append(lId, pId, testWrite)
+	pos, err := lm.Append(locus.locusId, pointId, testWrite)
 	require.Equal(t, uint64(0), pos)
 	require.NoError(t, err)
 
-	b, err := lm.Read(lId, pId, 0)
+	b, err := lm.Read(locus.locusId, pointId, 0)
 	require.Equal(t, b, testWrite)
 }
 
 func testLocusShouldFound(t *testing.T, lm *LociManager) {
-	lId, _, err := lm.AddPoint(locusId, pointId, true)
+	locus, err := lm.addLocus(locusId)
 	require.NoError(t, err)
 
-	defer lm.Remove(lId)
+	defer lm.Remove(locus.locusId)
 
-	_, err = lm.get(lId)
+	_, err = lm.get(locus.locusId)
 	require.NoError(t, err)
 }
 
@@ -96,12 +96,12 @@ func testNotExistingLocusAppend(t *testing.T, lm *LociManager) {
 }
 
 func testRemoveLocus(t *testing.T, lm *LociManager) {
-	lId, pId, err := lm.AddPoint(locusId, pointId, true)
+	locus, err := lm.addLocus(locusId)
 	require.NoError(t, err)
 
-	err = lm.Remove(lId)
+	err = lm.Remove(locus.locusId)
 
-	_, err = lm.Read(lId, pId, 0)
+	_, err = lm.Read(locus.locusId, pointId, 0)
 	apiErr := err.(streaming_api.LocusNotFound)
 	require.Equal(t, locusId, apiErr.LocusId)
 }

@@ -62,22 +62,10 @@ func (s *StreamingManager) ProduceStream(stream streaming_api.Streaming_ProduceS
 		var locusId string = req.GetLocus()
 		var pointId string = req.GetPoint()
 
-		var pointExists bool = false
-		_, locusExists := points[locusId]
-		if locusExists {
-			_, pointExists = points[locusId][pointId]
-		} else {
+		if _, locusExists := points[locusId]; !locusExists {
 			points[locusId] = make(map[string]bool)
 		}
-
-		if !pointExists {
-			// Check if the file is opened
-			locusId, pointId, err = s.LociManager.AddPoint(req.GetLocus(), req.GetPoint(), true)
-			if err != nil {
-				return err
-			}
-			points[locusId][pointId] = true
-		}
+		points[locusId][pointId] = true
 
 		if _, err = s.LociManager.Append(locusId, pointId, req.GetFrame()); err != nil {
 			return err
@@ -93,10 +81,7 @@ func (s *StreamingManager) ConsumeStream(req *streaming_api.ConsumeRequest, stre
 	); err != nil {
 		return err
 	}
-	locusId, pointId, err := s.LociManager.AddPoint(req.GetLocus(), req.GetPoint(), true)
-	if err != nil {
-		return err
-	}
+	locusId, pointId := req.GetLocus(), req.GetPoint()
 	defer s.LociManager.ClosePoint(locusId, pointId)
 	off := int64(0)
 	lenWidth := 8

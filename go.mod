@@ -14,6 +14,7 @@ require (
 	github.com/travisjeffery/go-dynaport v1.0.0
 	go.opencensus.io v0.23.0
 	go.uber.org/zap v1.21.0
+	golang.org/x/sync v0.0.0-20220513210516-0976fa681c29
 	google.golang.org/genproto v0.0.0-20220708155623-50e5f4832e73
 	google.golang.org/grpc v1.47.0
 	google.golang.org/protobuf v1.28.0

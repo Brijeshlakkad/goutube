@@ -1,12 +1,11 @@
 package locus
 
 import (
+	"github.com/stretchr/testify/require"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -20,16 +19,14 @@ func TestPointAppendRead(t *testing.T) {
 	defer os.Remove(f.Name())
 	fi, err := os.Stat(f.Name())
 
-	p, err := newPoint(filepath.Dir(f.Name()), fi.Name(), false)
-	require.NoError(t, err)
-	err = p.Open()
+	p, err := newPoint(filepath.Dir(f.Name()), fi.Name())
 	require.NoError(t, err)
 
 	testAppend(t, p)
 	testRead(t, p)
 	testReadAt(t, p)
 
-	p, err = newPoint(filepath.Dir(f.Name()), fi.Name(), true)
+	p, err = newPoint(filepath.Dir(f.Name()), fi.Name())
 	require.NoError(t, err)
 	testRead(t, p)
 }
@@ -73,13 +70,17 @@ func testReadAt(t *testing.T, p *Point) {
 	}
 }
 
-func TestPointClose(t *testing.T) {
+func TestPointOpenClose(t *testing.T) {
 	f, err := ioutil.TempFile("", "point_close_test")
 	require.NoError(t, err)
-	defer os.Remove(f.Name())
+	defer func(name string) {
+		err := os.Remove(name)
+		if err != nil {
+		}
+	}(f.Name())
 	fi, err := os.Stat(f.Name())
 
-	p, err := newPoint(filepath.Dir(f.Name()), fi.Name(), true)
+	p, err := newPoint(filepath.Dir(f.Name()), fi.Name())
 	require.NoError(t, err)
 	_, _, err = p.Append(write)
 	require.NoError(t, err)

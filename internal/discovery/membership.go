@@ -1,7 +1,6 @@
 package discovery
 
 import (
-	"fmt"
 	"net"
 
 	"github.com/hashicorp/serf/serf"
@@ -81,8 +80,6 @@ func (m *Membership) eventHandler() {
 }
 
 func (m *Membership) handleJoin(member serf.Member) {
-	fmt.Println("HandleJoin", member.Name)
-	fmt.Println(member.Tags["rpc_addr"])
 	if err := m.handler.Join(
 		member.Name,
 		member.Tags["rpc_addr"],

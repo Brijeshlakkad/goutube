@@ -54,8 +54,6 @@ func NewServer(config *Config, opts ...grpc.ServerOption) (*grpc.Server, error) 
 type LociManager interface {
 	GetLoci() []string
 	GetPoints(string) []string
-	Open(string, string) error
-	AddPoint(string, string, bool) (string, string, error)
 	Append(string, string, []byte) (uint64, error)
 	Read(string, string, uint64) ([]byte, error)
 	ReadAt(string, string, []byte, int64) (int, error)

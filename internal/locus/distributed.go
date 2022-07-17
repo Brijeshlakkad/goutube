@@ -10,14 +10,15 @@ import (
 	"sync"
 	"time"
 
-	"go.uber.org/zap"
+	"github.com/Brijeshlakkad/goutube/internal/mandala"
 )
 
 type DistributedLoci struct {
-	config Config
-	loci   *LociManager
-	*replicator
-	*StreamLayer
+	config  Config
+	loci    *LociManager
+	mandala *mandala.Cluster
+
+	mu sync.Mutex
 }
 
 func NewDistributedLoci(dataDir string, config Config) (
@@ -28,6 +29,9 @@ func NewDistributedLoci(dataDir string, config Config) (
 		config: config,
 	}
 	if err := l.setupLociManager(dataDir); err != nil {
+		return nil, err
+	}
+	if err := l.setupMandala(); err != nil {
 		return nil, err
 	}
 	return l, nil
@@ -44,8 +48,11 @@ func (l *DistributedLoci) setupLociManager(dataDir string) error {
 	return err
 }
 
-func (l *DistributedLoci) AddPoint(locusId string, pointId string, open bool) (string, string, error) {
-	return l.loci.AddPoint(locusId, pointId, open)
+func (l *DistributedLoci) setupMandala() error {
+	var err error
+	l.mandala, err = mandala.NewCluster()
+	l.mandala.StreamLayer = l.config.Distributed.StreamLayer
+	return err
 }
 
 func (l *DistributedLoci) GetLoci() []string {
@@ -56,15 +63,10 @@ func (l *DistributedLoci) GetPoints(locusId string) []string {
 	return l.loci.GetPoints(locusId)
 }
 
-func (l *DistributedLoci) get(locusId string) (*Locus, error) {
-	return l.loci.get(locusId)
-}
-
-func (l *DistributedLoci) Open(locusId string, pointId string) error {
-	return l.loci.Open(locusId, pointId)
-}
-
 func (l *DistributedLoci) Append(locusId string, pointId string, b []byte) (pos uint64, err error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
 	return l.loci.Append(locusId, pointId, b)
 }
 
@@ -77,96 +79,59 @@ func (l *DistributedLoci) ReadAt(locusId string, pointId string, b []byte, off i
 }
 
 func (l *DistributedLoci) Close(locusId string) error {
-	return l.loci.Close(locusId)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if err := l.loci.Close(locusId); err != nil {
+		return err
+	}
+	return l.mandala.Close()
 }
 
 func (l *DistributedLoci) ClosePoint(locusId string, pointId string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
 	return l.loci.ClosePoint(locusId, pointId)
 }
 
 func (l *DistributedLoci) CloseAll() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
 	return l.loci.CloseAll()
 }
 
 func (l *DistributedLoci) Remove(locusId string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
 	return l.loci.Remove(locusId)
 }
 
 func (l *DistributedLoci) RemoveAll() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
 	return l.loci.RemoveAll()
 }
 
-type replicator struct {
-	logger *zap.Logger
-
-	mu      sync.Mutex
-	servers map[string]chan struct{}
-	closed  bool
-	close   chan struct{}
-}
-
-func (r *replicator) init() {
-	if r.logger == nil {
-		r.logger = zap.L().Named("replicator")
-	}
-	if r.servers == nil {
-		r.servers = make(map[string]chan struct{})
-	}
-	if r.close == nil {
-		r.close = make(chan struct{})
-	}
-}
-
-func (l *replicator) Join(id, addr string) error {
+func (l *DistributedLoci) Join(id, addr string) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.init()
 
-	if l.closed {
+	if l.mandala.Closed {
 		return nil
 	}
 
-	if _, ok := l.servers[id]; ok {
-		// already replicating!
-	}
-	l.servers[id] = make(chan struct{})
-
-	return nil
+	return l.mandala.AddPeer(id, addr)
 }
 
-func (l *replicator) Leave(id string) error {
+func (l *DistributedLoci) Leave(id string) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.init()
 
-	if _, ok := l.servers[id]; !ok {
-		return nil
-	}
-	close(l.servers[id])
-	delete(l.servers, id)
-	return nil
-}
-
-func (r *replicator) Close() error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.init()
-
-	if r.closed {
-		return nil
-	}
-	r.closed = true
-	close(r.close)
-	return nil
-}
-
-// If users need access to the errors, a technique we can use to expose these errors is to export an error channel and send the errors into it for users to receive and handle.
-func (r *replicator) logError(err error, msg, addr string) {
-	r.logger.Error(
-		msg,
-		zap.String("addr", addr),
-		zap.Error(err),
-	)
+	return l.mandala.RemovePeer(id)
 }
 
 type StreamLayer struct {

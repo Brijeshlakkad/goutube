@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
+	"time"
 )
 
 var (
@@ -17,25 +19,30 @@ const (
 )
 
 type Point struct {
-	File     *os.File
-	pointId  string
-	pointDir string
-	mu       *sync.Mutex
-	buf      *bufio.Writer
-	size     uint64
+	File          *os.File
+	pointId       string
+	pointDir      string
+	readWriteLock *sync.Mutex
+	buf           *bufio.Writer
+	size          uint64
+
+	closed atomic.Value
+	close  chan string
+
+	lastAccessed time.Time
+	accessLock   *sync.Mutex
 }
 
-func newPoint(locusId string, relativePointId string, open bool) (*Point, error) {
+func newPoint(locusId string, relativePointId string) (*Point, error) {
 	p := new(Point)
 	p.pointId = relativePointId
-	p.mu = new(sync.Mutex)
+	p.readWriteLock = new(sync.Mutex)
 	p.pointDir = createPointId(locusId, relativePointId)
+	p.closed.Store(true)
+	p.close = make(chan string)
+	p.accessLock = new(sync.Mutex)
 
-	if !open {
-		return p, nil
-	}
-
-	return p, p.Open()
+	return p, nil
 }
 
 func (p *Point) Open() error {
@@ -51,12 +58,21 @@ func (p *Point) Open() error {
 	}
 	p.size = uint64(fi.Size())
 	p.buf = bufio.NewWriter(p.File)
+	p.closed.Store(false)
+	p.close = make(chan string)
 	return nil
 }
 
 func (p *Point) Append(b []byte) (n uint64, pos uint64, err error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.readWriteLock.Lock()
+	defer p.readWriteLock.Unlock()
+	defer p.setLastAccessed()
+
+	if p.closed.Load().(bool) {
+		if err := p.Open(); err != nil {
+			return 0, 0, err
+		}
+	}
 
 	pos = p.size
 	if err := binary.Write(p.buf, enc, uint64(len(b))); err != nil {
@@ -73,8 +89,15 @@ func (p *Point) Append(b []byte) (n uint64, pos uint64, err error) {
 }
 
 func (p *Point) Read(pos uint64) ([]byte, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.readWriteLock.Lock()
+	defer p.readWriteLock.Unlock()
+	defer p.setLastAccessed()
+
+	if p.closed.Load().(bool) {
+		if err := p.Open(); err != nil {
+			return nil, err
+		}
+	}
 
 	if err := p.buf.Flush(); err != nil {
 		return nil, err
@@ -91,8 +114,15 @@ func (p *Point) Read(pos uint64) ([]byte, error) {
 }
 
 func (p *Point) ReadAt(b []byte, off int64) (int, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.readWriteLock.Lock()
+	defer p.readWriteLock.Unlock()
+	defer p.setLastAccessed()
+
+	if p.closed.Load().(bool) {
+		if err := p.Open(); err != nil {
+			return 0, err
+		}
+	}
 
 	if err := p.buf.Flush(); err != nil {
 		return 0, err
@@ -101,9 +131,14 @@ func (p *Point) ReadAt(b []byte, off int64) (int, error) {
 }
 
 func (p *Point) Close() error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.readWriteLock.Lock()
+	defer p.readWriteLock.Unlock()
 
+	if p.closed.Load().(bool) {
+		return nil
+	}
+
+	p.closed.Store(true)
 	if p.buf != nil {
 		err := p.buf.Flush()
 		_, ok := err.(*os.PathError)
@@ -120,4 +155,18 @@ func (p *Point) Close() error {
 
 func createPointId(locusId string, relativePointId string) string {
 	return filepath.Join(locusId, relativePointId)
+}
+
+func (p *Point) GetLastAccessed() time.Time {
+	p.accessLock.Lock()
+	defer p.accessLock.Unlock()
+
+	return p.lastAccessed
+}
+
+func (p *Point) setLastAccessed() {
+	p.accessLock.Lock()
+	defer p.accessLock.Unlock()
+
+	p.lastAccessed = time.Now()
 }

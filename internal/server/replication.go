@@ -31,10 +31,6 @@ func (l *ReplicationManager) Replicate(req *replication_api.ReplicateRequest, st
 	var pointId string
 	for _, locusId = range l.LociManager.GetLoci() {
 		for _, pointId = range l.LociManager.GetPoints(locusId) {
-			err := l.LociManager.Open(locusId, pointId)
-			if err != nil {
-				return err
-			}
 			var end = false
 			off := int64(0)
 			for !end {

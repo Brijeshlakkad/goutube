@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	streaming_api "github.com/Brijeshlakkad/goutube/api/streaming/v1"
+	"github.com/Brijeshlakkad/goutube/internal/locus/pointcron"
 )
 
 type LociManager struct {
@@ -17,6 +18,12 @@ type LociManager struct {
 }
 
 func NewLociManager(dir string, config Config) (*LociManager, error) {
+	config.Point.pointScheduler = pointcron.NewPointScheduler(pointcron.Config{
+		CloseTimeout: config.Point.CloseTimeout,
+		TickTime:     config.Point.TickTime,
+	})
+	config.Point.pointScheduler.StartAsync()
+
 	l := &LociManager{
 		Config: config,
 		Dir:    dir,
@@ -41,47 +48,14 @@ func (l *LociManager) setup() error {
 	return nil
 }
 
-func (l *LociManager) AddLocus(locusId string) (string, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	lo, err := l.get(locusId)
+func (l *LociManager) addLocus(locusId string) (*Locus, error) {
+	lo, err := newLocus(l.Dir, locusId, l.Config)
 	if err != nil {
-		_, ok := err.(streaming_api.LocusNotFound)
-		if ok {
-			lo, err = newLocus(l.Dir, locusId, l.Config)
-			if err != nil {
-				return "", err
-			}
-
-			l.loci[lo.locusId] = lo
-			return lo.locusId, nil
-		}
-		return "", err
+		return nil, err
 	}
-	return lo.locusId, err
-}
 
-func (l *LociManager) AddPoint(locusId string, pointId string, open bool) (string, string, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	lo, err := l.get(locusId)
-	if err != nil {
-		_, ok := err.(streaming_api.LocusNotFound)
-		if ok {
-			lo, err = newLocus(l.Dir, locusId, l.Config)
-			if err != nil {
-				return "", "", err
-			}
-
-			l.loci[lo.locusId] = lo
-		} else {
-			return "", "", err
-		}
-	}
-	pointId, err = lo.add(pointId, open)
-	return lo.locusId, pointId, err
+	l.loci[lo.locusId] = lo
+	return lo, nil
 }
 
 func (l *LociManager) GetLoci() []string {
@@ -110,25 +84,15 @@ func (l *LociManager) get(locusId string) (*Locus, error) {
 	return p, nil
 }
 
-func (l *LociManager) Open(locusId string, pointId string) error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	lo, err := l.get(locusId)
-	if err != nil {
-		return nil
-	}
-
-	return lo.Open(pointId)
-}
-
 func (l *LociManager) Append(locusId string, pointId string, b []byte) (pos uint64, err error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	lo, err := l.get(locusId)
-	if err != nil {
-		return 0, nil
+	if _, ok := err.(streaming_api.LocusNotFound); ok {
+		lo, err = l.addLocus(locusId)
+
+		l.loci[lo.locusId] = lo
 	}
 
 	_, pos, err = lo.Append(pointId, b)
