@@ -42,16 +42,11 @@ func (s *StreamingManager) ProduceStream(stream streaming_api.Streaming_ProduceS
 			}
 		}
 	})()
+	var lastOffset uint64
 	for {
 		req, err := stream.Recv()
 		if err == io.EOF {
-			pointIdResp := make([]*streaming_api.PointId, 0, len(points))
-			for locusId, pointIds := range points {
-				for pointId, _ := range pointIds {
-					pointIdResp = append(pointIdResp, &streaming_api.PointId{Locus: locusId, Point: pointId})
-				}
-			}
-			if err := stream.SendAndClose(&streaming_api.ProduceResponse{Points: pointIdResp}); err != nil {
+			if err := stream.SendAndClose(&streaming_api.ProduceResponse{Offset: lastOffset}); err != nil {
 				return err
 			}
 			return nil
@@ -67,7 +62,7 @@ func (s *StreamingManager) ProduceStream(stream streaming_api.Streaming_ProduceS
 		}
 		points[locusId][pointId] = true
 
-		if _, err = s.LociManager.Append(locusId, pointId, req.GetFrame()); err != nil {
+		if lastOffset, err = s.LociManager.Append(locusId, pointId, req.GetFrame()); err != nil {
 			return err
 		}
 	}

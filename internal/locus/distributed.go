@@ -10,13 +10,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Brijeshlakkad/goutube/internal/mandala"
+	streaming_api "github.com/Brijeshlakkad/goutube/api/streaming/v1"
+
+	"google.golang.org/protobuf/proto"
 )
 
 type DistributedLoci struct {
-	config  Config
-	loci    *LociManager
-	mandala *mandala.Cluster
+	config Config
+	loci   *LociManager
+
+	arc *Arc
 
 	mu sync.Mutex
 }
@@ -25,116 +28,129 @@ func NewDistributedLoci(dataDir string, config Config) (
 	*DistributedLoci,
 	error,
 ) {
-	l := &DistributedLoci{
+	d := &DistributedLoci{
 		config: config,
 	}
-	if err := l.setupLociManager(dataDir); err != nil {
+	if err := d.setupLociManager(dataDir); err != nil {
 		return nil, err
 	}
-	if err := l.setupMandala(); err != nil {
-		return nil, err
+	arcConfig := ArcConfig{
+		StreamLayer: config.Distributed.StreamLayer,
+		fsm:         &fsm{d.loci},
 	}
-	return l, nil
+	d.arc = NewArc(arcConfig)
+	return d, nil
 }
 
-func (l *DistributedLoci) setupLociManager(dataDir string) error {
+func (d *DistributedLoci) setupLociManager(dataDir string) error {
 	lociDir := filepath.Join(dataDir, "loci")
 	// Create a hierarchy of directories if necessary
 	if err := os.MkdirAll(lociDir, 0755); err != nil {
 		return err
 	}
 	var err error
-	l.loci, err = NewLociManager(lociDir, l.config)
+	d.loci, err = NewLociManager(lociDir, d.config)
 	return err
 }
 
-func (l *DistributedLoci) setupMandala() error {
-	var err error
-	l.mandala, err = mandala.NewCluster()
-	l.mandala.StreamLayer = l.config.Distributed.StreamLayer
-	return err
+func (d *DistributedLoci) GetLoci() []string {
+	return d.loci.GetLoci()
 }
 
-func (l *DistributedLoci) GetLoci() []string {
-	return l.loci.GetLoci()
+func (d *DistributedLoci) GetPoints(locusId string) []string {
+	return d.loci.GetPoints(locusId)
 }
 
-func (l *DistributedLoci) GetPoints(locusId string) []string {
-	return l.loci.GetPoints(locusId)
-}
+func (d *DistributedLoci) Append(locusId string, pointId string, b []byte) (pos uint64, err error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 
-func (l *DistributedLoci) Append(locusId string, pointId string, b []byte) (pos uint64, err error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	return l.loci.Append(locusId, pointId, b)
-}
-
-func (l *DistributedLoci) Read(locusId string, pointId string, pos uint64) ([]byte, error) {
-	return l.loci.Read(locusId, pointId, pos)
-}
-
-func (l *DistributedLoci) ReadAt(locusId string, pointId string, b []byte, off int64) (int, error) {
-	return l.loci.ReadAt(locusId, pointId, b, off)
-}
-
-func (l *DistributedLoci) Close(locusId string) error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	if err := l.loci.Close(locusId); err != nil {
-		return err
+	apply, err := d.apply(AppendRequestType, &streaming_api.ProduceRequest{Locus: locusId, Point: pointId, Frame: b})
+	if err != nil {
+		return 0, err
 	}
-	return l.mandala.Close()
+	return apply.(*streaming_api.ProduceResponse).Offset, nil
 }
 
-func (l *DistributedLoci) ClosePoint(locusId string, pointId string) error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	return l.loci.ClosePoint(locusId, pointId)
-}
-
-func (l *DistributedLoci) CloseAll() error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	return l.loci.CloseAll()
-}
-
-func (l *DistributedLoci) Remove(locusId string) error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	return l.loci.Remove(locusId)
-}
-
-func (l *DistributedLoci) RemoveAll() error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	return l.loci.RemoveAll()
-}
-
-func (l *DistributedLoci) Join(id, addr string) error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	if l.mandala.Closed {
-		return nil
+func (d *DistributedLoci) apply(reqType RequestType, req proto.Message) (
+	interface{},
+	error,
+) {
+	var buf bytes.Buffer
+	_, err := buf.Write([]byte{byte(reqType)})
+	if err != nil {
+		return nil, err
+	}
+	b, err := proto.Marshal(req)
+	if err != nil {
+		return nil, err
 	}
 
-	return l.mandala.AddPeer(id, addr)
+	_, err = buf.Write(b)
+	if err != nil {
+		return nil, err
+	}
+	timeout := 10 * time.Second
+	commandPromise := d.arc.Apply(buf.Bytes(), timeout)
+	if err := commandPromise.Error(); err != nil {
+		return nil, err
+	}
+	res := commandPromise.Response().(*CommandResponse)
+	return res.Response, nil
 }
 
-func (l *DistributedLoci) Leave(id string) error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	return l.mandala.RemovePeer(id)
+func (d *DistributedLoci) Read(locusId string, pointId string, pos uint64) ([]byte, error) {
+	return d.loci.Read(locusId, pointId, pos)
 }
 
-type StreamLayer struct {
+func (d *DistributedLoci) ReadAt(locusId string, pointId string, b []byte, off int64) (int, error) {
+	return d.loci.ReadAt(locusId, pointId, b, off)
+}
+
+func (d *DistributedLoci) Close(locusId string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	return d.loci.Close(locusId)
+}
+
+func (d *DistributedLoci) ClosePoint(locusId string, pointId string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	return d.loci.ClosePoint(locusId, pointId)
+}
+
+func (d *DistributedLoci) CloseAll() error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	return d.loci.CloseAll()
+}
+
+func (d *DistributedLoci) Remove(locusId string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	return d.loci.Remove(locusId)
+}
+
+func (d *DistributedLoci) RemoveAll() error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	return d.loci.RemoveAll()
+}
+
+func (d *DistributedLoci) Join(rpcAddr string, vNodeCount int) error {
+	return d.arc.Join(rpcAddr, vNodeCount)
+}
+
+func (d *DistributedLoci) Leave(rpcAddr string) error {
+	return d.arc.Leave(rpcAddr)
+}
+
+type LocusStreamLayer struct {
 	ln              net.Listener
 	serverTLSConfig *tls.Config
 	peerTLSConfig   *tls.Config
@@ -144,27 +160,24 @@ func NewStreamLayer(
 	ln net.Listener,
 	serverTLSConfig,
 	peerTLSConfig *tls.Config,
-) *StreamLayer {
-	return &StreamLayer{
+) *LocusStreamLayer {
+	return &LocusStreamLayer{
 		ln:              ln,
 		serverTLSConfig: serverTLSConfig,
 		peerTLSConfig:   peerTLSConfig,
 	}
 }
 
-const LociRPC = 1
+const RingRPC = 1
 
-func (s *StreamLayer) Dial(
-	addr string,
-	timeout time.Duration,
-) (net.Conn, error) {
+func (s *LocusStreamLayer) Dial(address ServerAddress, timeout time.Duration) (net.Conn, error) {
 	dialer := &net.Dialer{Timeout: timeout}
-	var conn, err = dialer.Dial("tcp", string(addr))
+	var conn, err = dialer.Dial("tcp", string(address))
 	if err != nil {
 		return nil, err
 	}
-	// identify to mux this is a loci rpc
-	_, err = conn.Write([]byte{byte(LociRPC)})
+	// identify to mux this is a raft rpc
+	_, err = conn.Write([]byte{byte(RingRPC)})
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +187,7 @@ func (s *StreamLayer) Dial(
 	return conn, err
 }
 
-func (s *StreamLayer) Accept() (net.Conn, error) {
+func (s *LocusStreamLayer) Accept() (net.Conn, error) {
 	conn, err := s.ln.Accept()
 	if err != nil {
 		return nil, err
@@ -184,8 +197,8 @@ func (s *StreamLayer) Accept() (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	if bytes.Compare([]byte{byte(LociRPC)}, b) != 0 {
-		return nil, fmt.Errorf("not a loci rpc")
+	if bytes.Compare([]byte{byte(RingRPC)}, b) != 0 {
+		return nil, fmt.Errorf("not a raft rpc")
 	}
 	if s.serverTLSConfig != nil {
 		return tls.Server(conn, s.serverTLSConfig), nil
@@ -193,10 +206,40 @@ func (s *StreamLayer) Accept() (net.Conn, error) {
 	return conn, nil
 }
 
-func (s *StreamLayer) Close() error {
+func (s *LocusStreamLayer) Close() error {
 	return s.ln.Close()
 }
 
-func (s *StreamLayer) Addr() net.Addr {
+func (s *LocusStreamLayer) Addr() net.Addr {
 	return s.ln.Addr()
+}
+
+var _ FSM = (*fsm)(nil)
+
+type fsm struct {
+	loci *LociManager
+}
+
+// Apply Invokes this method after committing a log entry.
+func (l *fsm) Apply(record *CommandRequest) interface{} {
+	buf := record.Data
+	reqType := RequestType(buf[0])
+	switch reqType {
+	case AppendRequestType:
+		return l.applyAppend(buf[1:])
+	}
+	return nil
+}
+
+func (l *fsm) applyAppend(b []byte) interface{} {
+	var req streaming_api.ProduceRequest
+	err := proto.Unmarshal(b, &req)
+	if err != nil {
+		return err
+	}
+	offset, err := l.loci.Append(req.GetLocus(), req.Point, req.GetFrame())
+	if err != nil {
+		return err
+	}
+	return &streaming_api.ProduceResponse{Offset: offset}
 }

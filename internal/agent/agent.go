@@ -9,9 +9,9 @@ import (
 	"sync"
 
 	"github.com/Brijeshlakkad/goutube/internal/auth"
-	"github.com/Brijeshlakkad/goutube/internal/discovery"
 	"github.com/Brijeshlakkad/goutube/internal/locus"
 	"github.com/Brijeshlakkad/goutube/internal/server"
+	"github.com/Brijeshlakkad/ring"
 	"github.com/soheilhy/cmux"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -23,7 +23,7 @@ type Agent struct {
 	mux        cmux.CMux
 	loci       *locus.DistributedLoci
 	server     *grpc.Server
-	membership *discovery.Membership
+	membership *ring.Member
 
 	shutdown     bool
 	shutdowns    chan struct{}
@@ -31,16 +31,18 @@ type Agent struct {
 }
 
 type Config struct {
-	ServerTLSConfig *tls.Config // Served to clients.
-	PeerTLSConfig   *tls.Config // Servers so they can connect with and replicate each other.
-	DataDir         string
-	BindAddr        string
-	RPCPort         int
-	NodeName        string
-	StartJoinAddrs  []string
+	DataDir          string
+	BindAddr         string
+	RPCPort          int
+	NodeName         string
+	SeedAddresses    []string
+	Bootstrap        bool
+	VirtualNodeCount int
+
 	ACLModelFile    string
 	ACLPolicyFile   string
-	Bootstrap       bool
+	ServerTLSConfig *tls.Config // Served to clients.
+	PeerTLSConfig   *tls.Config // Servers so they can connect with and replicate each other.
 }
 
 func (c Config) RPCAddr() (string, error) {
@@ -58,9 +60,9 @@ func New(config Config) (*Agent, error) {
 	}
 	setup := []func() error{
 		a.setupMux,
+		a.setupMembership,
 		a.setupLoci,
 		a.setupServer,
-		a.setupMembership,
 	}
 	for _, fn := range setup {
 		if err := fn(); err != nil {
@@ -71,6 +73,15 @@ func New(config Config) (*Agent, error) {
 	return a, nil
 }
 
+func (a *Agent) serve() error {
+	if err := a.mux.Serve(); err != nil {
+		_ = a.Shutdown()
+		return err
+	}
+	return nil
+}
+
+// Accept both Raft and gRPC connections and then creates the mux with the listener.
 // Match connections based on your configured rules.
 func (a *Agent) setupMux() error {
 	rpcAddr := fmt.Sprintf(
@@ -85,26 +96,18 @@ func (a *Agent) setupMux() error {
 	return nil
 }
 
-func (a *Agent) serve() error {
-	if err := a.mux.Serve(); err != nil {
-		_ = a.Shutdown()
-		return err
-	}
-	return nil
-}
-
 func (a *Agent) setupLoci() error {
-	rpcAddr, err := a.Config.RPCAddr()
-	if err != nil {
-		return err
-	}
 	lociLn := a.mux.Match(func(reader io.Reader) bool {
 		b := make([]byte, 1)
 		if _, err := reader.Read(b); err != nil {
 			return false
 		}
-		return bytes.Compare(b, []byte{byte(locus.LociRPC)}) == 0
+		return bytes.Compare(b, []byte{byte(locus.RingRPC)}) == 0
 	})
+	rpcAddr, err := a.Config.RPCAddr()
+	if err != nil {
+		return err
+	}
 
 	lociConfig := locus.Config{}
 	lociConfig.Distributed.StreamLayer = locus.NewStreamLayer(
@@ -116,7 +119,11 @@ func (a *Agent) setupLoci() error {
 	lociConfig.Distributed.LocalID = a.Config.NodeName
 	lociConfig.Distributed.Bootstrap = a.Config.Bootstrap
 	a.loci, err = locus.NewDistributedLoci(a.Config.DataDir, lociConfig)
+
+	a.membership.AddListener("locimanager", a.loci)
+
 	// TODO: Bootstrap
+
 	return err
 }
 
@@ -151,17 +158,13 @@ func (a *Agent) setupServer() error {
 }
 
 func (a *Agent) setupMembership() error {
-	rpcAddr, err := a.Config.RPCAddr()
-	if err != nil {
-		return err
-	}
-	a.membership, err = discovery.New(a.loci, discovery.Config{
-		NodeName: a.Config.NodeName,
-		BindAddr: a.Config.BindAddr,
-		Tags: map[string]string{
-			"rpc_addr": rpcAddr,
-		},
-		StartJoinAddrs: a.Config.StartJoinAddrs,
+	var err error
+	a.membership, err = ring.NewMember(ring.Config{
+		NodeName:         a.Config.NodeName,
+		BindAddr:         a.Config.BindAddr,
+		RPCPort:          a.RPCPort,
+		VirtualNodeCount: a.VirtualNodeCount,
+		SeedAddresses:    a.Config.SeedAddresses,
 	})
 	return err
 }
@@ -176,7 +179,7 @@ func (a *Agent) Shutdown() error {
 	close(a.shutdowns)
 
 	shutdown := []func() error{
-		a.membership.Leave,
+		a.membership.Shutdown,
 		func() error {
 			a.server.GracefulStop()
 			return nil

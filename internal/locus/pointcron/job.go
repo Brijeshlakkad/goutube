@@ -11,7 +11,7 @@ type Job struct {
 	mu *sync.RWMutex
 	jobFunction
 
-	getLastAccessed interface{}
+	getLastAccessed time.Time
 	afterTime       time.Duration
 	startAtTime     time.Time // optional time at which the Job starts
 	error           error

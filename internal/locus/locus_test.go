@@ -3,6 +3,7 @@ package locus
 import (
 	"fmt"
 	"io/ioutil"
+	"os"
 	"testing"
 	"time"
 
@@ -21,23 +22,23 @@ func TestLocus(t *testing.T) {
 	for scenario, fn := range map[string]func(
 		t *testing.T, locus *Locus,
 	){
-		//"create five pointers":                 testCreatePointers,
-		//"append and read a record succeeds":    testPointAppendRead,
-		//"point should found":                   testPointShouldFound,
-		//"point not found":                      testPointNotFoundErr,
-		//"append on non-existing point":         testNotExistingPointAppend,
-		//"remove pointer":                       testRemovePointer,
-		//"close unnecessary pointer":            testPointCloseAfter,
+		"create five pointers":                 testCreatePointers,
+		"append and read a record succeeds":    testPointAppendRead,
+		"point should found":                   testPointShouldFound,
+		"point not found":                      testPointNotFoundErr,
+		"append on non-existing point":         testNotExistingPointAppend,
+		"remove pointer":                       testRemovePointer,
+		"close unnecessary pointer":            testPointCloseAfter,
 		"keep pointer open if a recent access": testPointKeepOpen,
 	} {
 		t.Run(scenario, func(t *testing.T) {
 			parentDir, err := ioutil.TempDir("", "locus-test")
 			require.NoError(t, err)
-			// defer os.RemoveAll(dir)
+			defer os.RemoveAll(parentDir)
 
 			c := Config{}
 			pointcronConfig := pointcron.Config{}
-			pointcronConfig.CloseTimeout = 3 * time.Second
+			pointcronConfig.CloseTimeout = 1 * time.Second
 			pointcronConfig.TickTime = time.Second
 			c.Point.pointScheduler = pointcron.NewPointScheduler(pointcronConfig)
 			c.Point.pointScheduler.StartAsync()
@@ -136,7 +137,7 @@ func testPointCloseAfter(t *testing.T, locus *Locus) {
 
 	require.Eventually(t, func() bool {
 		return point.closed.Load().(bool)
-	}, 5*time.Second, 1*time.Second)
+	}, 3*time.Second, 1*time.Second)
 
 	_, _, err = locus.Append(point.pointId, write)
 	require.NoError(t, err)
@@ -144,7 +145,7 @@ func testPointCloseAfter(t *testing.T, locus *Locus) {
 
 	require.Eventually(t, func() bool {
 		return point.closed.Load().(bool)
-	}, 5*time.Second, 1*time.Second)
+	}, 3*time.Second, 1*time.Second)
 }
 
 func testPointKeepOpen(t *testing.T, locus *Locus) {
@@ -164,10 +165,6 @@ func testPointKeepOpen(t *testing.T, locus *Locus) {
 	require.Equal(t, point.closed.Load().(bool), false)
 
 	require.Eventually(t, func() bool {
-		return !point.closed.Load().(bool)
-	}, 2*time.Second, 1*time.Second)
-
-	require.Eventually(t, func() bool {
-		return !point.closed.Load().(bool)
-	}, 5*time.Second, 1*time.Second)
+		return point.closed.Load().(bool)
+	}, 3*time.Second, 1*time.Second)
 }

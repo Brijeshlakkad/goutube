@@ -66,7 +66,6 @@ func (p *Point) Open() error {
 func (p *Point) Append(b []byte) (n uint64, pos uint64, err error) {
 	p.readWriteLock.Lock()
 	defer p.readWriteLock.Unlock()
-	defer p.setLastAccessed()
 
 	if p.closed.Load().(bool) {
 		if err := p.Open(); err != nil {
@@ -91,7 +90,6 @@ func (p *Point) Append(b []byte) (n uint64, pos uint64, err error) {
 func (p *Point) Read(pos uint64) ([]byte, error) {
 	p.readWriteLock.Lock()
 	defer p.readWriteLock.Unlock()
-	defer p.setLastAccessed()
 
 	if p.closed.Load().(bool) {
 		if err := p.Open(); err != nil {
@@ -116,7 +114,6 @@ func (p *Point) Read(pos uint64) ([]byte, error) {
 func (p *Point) ReadAt(b []byte, off int64) (int, error) {
 	p.readWriteLock.Lock()
 	defer p.readWriteLock.Unlock()
-	defer p.setLastAccessed()
 
 	if p.closed.Load().(bool) {
 		if err := p.Open(); err != nil {

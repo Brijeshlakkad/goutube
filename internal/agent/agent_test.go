@@ -58,7 +58,7 @@ func TestAgent(t *testing.T) {
 
 		agent, err := agent.New(agent.Config{
 			NodeName:        fmt.Sprintf("%d", i),
-			StartJoinAddrs:  startJoinAddrs,
+			SeedAddresses:   startJoinAddrs,
 			BindAddr:        bindAddr,
 			RPCPort:         rpcPort,
 			DataDir:         dataDir,
@@ -98,12 +98,8 @@ func TestAgent(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	resp, err := stream.CloseAndRecv()
+	_, err = stream.CloseAndRecv()
 	require.NoError(t, err)
-
-	require.Equal(t, 1, len(resp.Points))
-	require.Equal(t, locusId, resp.Points[0].Locus)
-	require.Equal(t, pointId, resp.Points[0].Point)
 
 	// Wait for the servers to replicate the record before consuming with the leader client.
 	time.Sleep(3 * time.Second)

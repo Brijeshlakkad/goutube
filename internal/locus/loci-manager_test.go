@@ -3,6 +3,7 @@ package locus
 import (
 	"fmt"
 	"io/ioutil"
+	"os"
 	"testing"
 
 	streaming_api "github.com/Brijeshlakkad/goutube/api/streaming/v1"
@@ -27,9 +28,9 @@ func TestLocusManager(t *testing.T) {
 		"remove locus":                      testRemoveLocus,
 	} {
 		t.Run(scenario, func(t *testing.T) {
-			parentDir, err := ioutil.TempDir("", "locus-test")
+			parentDir, err := ioutil.TempDir("", "locus-manager-test")
 			require.NoError(t, err)
-			// defer os.RemoveAll(dir)
+			defer os.RemoveAll(parentDir)
 
 			c := Config{}
 			loci, err := NewLociManager(parentDir, c)

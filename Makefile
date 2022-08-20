@@ -49,7 +49,7 @@ $(CONFIG_PATH)/policy.csv:
 
 .PHONY: test
 test: $(CONFIG_PATH)/policy.csv $(CONFIG_PATH)/model.conf
-	go test -race ./...
+	go test -race ./... -v
 
 .PHONY: compile
 compile:

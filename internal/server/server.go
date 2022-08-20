@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/binary"
 
-	replication_api "github.com/Brijeshlakkad/goutube/api/replication/v1"
 	streaming_api "github.com/Brijeshlakkad/goutube/api/streaming/v1"
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_auth "github.com/grpc-ecosystem/go-grpc-middleware/auth"
@@ -21,16 +20,11 @@ var (
 )
 
 type Config struct {
-	ReplicationConfig *ReplicationConfig
-	StreamingConfig   *StreamingConfig
+	StreamingConfig *StreamingConfig
 }
 
 func NewServer(config *Config, opts ...grpc.ServerOption) (*grpc.Server, error) {
 	sm, err := NewStreamingServer(config.StreamingConfig)
-	if err != nil {
-		return nil, err
-	}
-	rm, err := NewReplicationManager(config.ReplicationConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -47,7 +41,6 @@ func NewServer(config *Config, opts ...grpc.ServerOption) (*grpc.Server, error) 
 	)
 	gRPCServer := grpc.NewServer(opts...)
 	streaming_api.RegisterStreamingServer(gRPCServer, sm)
-	replication_api.RegisterReplicationServer(gRPCServer, rm)
 	return gRPCServer, nil
 }
 

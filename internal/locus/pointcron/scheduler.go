@@ -86,7 +86,7 @@ func (p *PointScheduler) Enqueue(point PointJob) {
 	}
 	job := newJob(p.config.CloseTimeout)
 	job.function = point.Close
-	job.getLastAccessed = point.GetLastAccessed
+	job.getLastAccessed = time.Now()
 
 	if p.IsRunning() {
 		p.runContinuous(job)
@@ -94,20 +94,7 @@ func (p *PointScheduler) Enqueue(point PointJob) {
 }
 
 func (p *PointScheduler) runContinuous(job *Job) {
-	next := p.scheduleNextRun(job)
-
-	if next.dateTime.IsZero() {
-		return
-	}
-
 	time.AfterFunc(job.afterTime, func() {
-		if !next.dateTime.IsZero() {
-			for {
-				if time.Now().Unix() >= next.dateTime.Unix() {
-					break
-				}
-			}
-		}
 		// Only one time call
 		p.run(job)
 	})
@@ -128,7 +115,7 @@ func (p *PointScheduler) scheduleNextRun(job *Job) nextRun {
 
 // durationToNextRun calculate how much time to the next run, depending on unit
 func (p *PointScheduler) durationToNextRun(lastRun time.Time, job *Job) nextRun {
-	lastAccess := callGetLastAccessed(job.getLastAccessed)
+	lastAccess := job.getLastAccessed
 
 	// Cancel this scheduling if the job had recently accessed.
 	if time.Now().Sub(lastAccess).Seconds() < p.config.CloseTimeout.Seconds() {

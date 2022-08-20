@@ -24,11 +24,6 @@ message ProduceRequest {
     bytes frame = 3;
 }
 
-message PointId {
-    string locus = 1;
-    string point = 2;
-}
-
 message ProduceResponse {
-    repeated PointId points = 1;
+    uint64 offset = 1;
 }
