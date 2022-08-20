@@ -22,8 +22,8 @@ type Authorizer interface {
 }
 
 type StreamingConfig struct {
-	LociManager LociManager
-	Authorizer  Authorizer
+	Locus      Locus
+	Authorizer Authorizer
 }
 
 func (s *StreamingManager) ProduceStream(stream streaming_api.Streaming_ProduceStreamServer) error {
@@ -34,12 +34,10 @@ func (s *StreamingManager) ProduceStream(stream streaming_api.Streaming_ProduceS
 	); err != nil {
 		return err
 	}
-	points := make(map[string]map[string]bool)
+	points := make(map[string]bool)
 	defer (func() {
-		for locusId, pointIds := range points {
-			for pointId, _ := range pointIds {
-				_ = s.LociManager.ClosePoint(locusId, pointId)
-			}
+		for pointId, _ := range points {
+			_ = s.Locus.ClosePoint(pointId)
 		}
 	})()
 	var lastOffset uint64
@@ -54,15 +52,11 @@ func (s *StreamingManager) ProduceStream(stream streaming_api.Streaming_ProduceS
 		if err != nil {
 			return err
 		}
-		var locusId string = req.GetLocus()
 		var pointId string = req.GetPoint()
 
-		if _, locusExists := points[locusId]; !locusExists {
-			points[locusId] = make(map[string]bool)
-		}
-		points[locusId][pointId] = true
+		points[pointId] = true
 
-		if lastOffset, err = s.LociManager.Append(locusId, pointId, req.GetFrame()); err != nil {
+		if lastOffset, err = s.Locus.Append(pointId, req.GetFrame()); err != nil {
 			return err
 		}
 	}
@@ -76,8 +70,8 @@ func (s *StreamingManager) ConsumeStream(req *streaming_api.ConsumeRequest, stre
 	); err != nil {
 		return err
 	}
-	locusId, pointId := req.GetLocus(), req.GetPoint()
-	defer s.LociManager.ClosePoint(locusId, pointId)
+	pointId := req.GetPoint()
+	defer s.Locus.ClosePoint(pointId)
 	off := int64(0)
 	lenWidth := 8
 	for {
@@ -86,7 +80,7 @@ func (s *StreamingManager) ConsumeStream(req *streaming_api.ConsumeRequest, stre
 			return nil
 		default:
 			buf := make([]byte, lenWidth)
-			n, err := s.LociManager.ReadAt(locusId, pointId, buf, off)
+			n, err := s.Locus.ReadAt(pointId, buf, off)
 			if err != nil {
 				return nil
 			}
@@ -94,7 +88,7 @@ func (s *StreamingManager) ConsumeStream(req *streaming_api.ConsumeRequest, stre
 
 			size := enc.Uint64(buf)
 			buf = make([]byte, size)
-			n, err = s.LociManager.ReadAt(locusId, pointId, buf, off)
+			n, err = s.Locus.ReadAt(pointId, buf, off)
 			if err != nil {
 				return err
 			}

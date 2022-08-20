@@ -3,6 +3,7 @@ package locus
 import (
 	"bytes"
 	"fmt"
+	"github.com/Brijeshlakkad/goutube/internal/locus/pointcron"
 	"io/ioutil"
 	"os"
 	"testing"
@@ -21,9 +22,10 @@ func TestArc_FSM(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(dataDir)
 
-	lociManager, err := NewLociManager(dataDir, Config{})
+	locus := setupTestLocus(t, dataDir)
+
 	fsm := &fsm{
-		lociManager,
+		locus,
 	}
 
 	arc := NewArc(ArcConfig{
@@ -33,7 +35,7 @@ func TestArc_FSM(t *testing.T) {
 
 	for i := 0; i < 10; i++ {
 		data := []byte(fmt.Sprintf("Test data line %d", i))
-		resp, err := apply(arc, AppendRequestType, &streaming_api.ProduceRequest{Locus: locusId, Point: pointId, Frame: data})
+		resp, err := apply(arc, AppendRequestType, &streaming_api.ProduceRequest{Point: pointId, Frame: data})
 		require.NoError(t, err)
 
 		_ = resp.(*streaming_api.ProduceResponse).Offset
@@ -43,7 +45,7 @@ func TestArc_FSM(t *testing.T) {
 		var pos uint64
 		for i := uint64(0); i < 10; i++ {
 			data := []byte(fmt.Sprintf("Test data line %d", i))
-			read, err := lociManager.Read(locusId, pointId, pos)
+			read, err := locus.Read(pointId, pos)
 			require.NoError(t, err)
 			require.Equal(t, data, read)
 			pos += uint64(len(data)) + lenWidth
@@ -56,15 +58,13 @@ func TestArc_Followers(t *testing.T) {
 	streamLayer, err := newTCPStreamLayer("localhost:0", nil)
 	require.NoError(t, err)
 
-	dataDir, err := ioutil.TempDir("", "arc-test")
+	dataDir_Leader, err := ioutil.TempDir("", "arc-test")
 	require.NoError(t, err)
-	defer func(dir string) {
-		_ = os.RemoveAll(dir)
-	}(dataDir)
+	defer os.RemoveAll(dataDir_Leader)
 
-	lociManager, err := NewLociManager(dataDir, Config{})
+	locus_Leader := setupTestLocus(t, dataDir_Leader)
 	fsm_leader := &fsm{
-		lociManager,
+		locus_Leader,
 	}
 
 	arc_leader := NewArc(ArcConfig{
@@ -78,13 +78,11 @@ func TestArc_Followers(t *testing.T) {
 
 	dataDir_Follower, err := ioutil.TempDir("", "arc-test")
 	require.NoError(t, err)
-	defer func(dir string) {
-		_ = os.RemoveAll(dir)
-	}(dataDir)
+	defer os.RemoveAll(dataDir_Follower)
 
-	lociManager_Follower, err := NewLociManager(dataDir_Follower, Config{})
+	locus_Follower := setupTestLocus(t, dataDir_Follower)
 	fsm_Follower := &fsm{
-		lociManager_Follower,
+		locus_Follower,
 	}
 
 	_ = NewArc(ArcConfig{
@@ -100,7 +98,7 @@ func TestArc_Followers(t *testing.T) {
 
 	for i := 0; i < 10; i++ {
 		data := []byte(fmt.Sprintf("Test data line %d", i))
-		resp, err := apply(arc_leader, AppendRequestType, &streaming_api.ProduceRequest{Locus: locusId, Point: pointId, Frame: data})
+		resp, err := apply(arc_leader, AppendRequestType, &streaming_api.ProduceRequest{Point: pointId, Frame: data})
 		require.NoError(t, err)
 
 		_ = resp.(*streaming_api.ProduceResponse).Offset
@@ -112,7 +110,7 @@ func TestArc_Followers(t *testing.T) {
 	var pos uint64
 	for i := uint64(0); i < 10; i++ {
 		data := []byte(fmt.Sprintf("Test data line %d", i))
-		read, err := lociManager_Follower.Read(locusId, pointId, pos)
+		read, err := locus_Follower.Read(pointId, pos)
 		require.NoError(t, err)
 		require.Equal(t, data, read)
 		pos += uint64(len(data)) + lenWidth
@@ -144,4 +142,18 @@ func apply(arc *Arc, reqType RequestType, req proto.Message) (
 	}
 	res := commandPromise.Response().(*CommandResponse)
 	return res.Response, nil
+}
+
+func setupTestLocus(t *testing.T, dataDir string) *Locus {
+	c := Config{}
+	pointcronConfig := pointcron.Config{}
+	pointcronConfig.CloseTimeout = 1 * time.Second
+	pointcronConfig.TickTime = time.Second
+	c.Point.pointScheduler = pointcron.NewPointScheduler(pointcronConfig)
+	c.Point.pointScheduler.StartAsync()
+
+	locus, err := NewLocus(dataDir, c)
+	require.NoError(t, err)
+
+	return locus
 }

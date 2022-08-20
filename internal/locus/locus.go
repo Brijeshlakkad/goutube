@@ -12,22 +12,20 @@ import (
 type Locus struct {
 	mu sync.RWMutex
 
-	locusId  string
 	locusDir string
 	Config   Config
 
 	points map[string]*Point
 }
 
-func newLocus(parentDir string, locusId string, config Config) (*Locus, error) {
+func NewLocus(parentDir string, config Config) (*Locus, error) {
 	// Create a hierarchy of directories if necessary
-	locusDir := filepath.Join(parentDir, locusId)
+	locusDir := filepath.Join(parentDir, "locus")
 	if err := os.MkdirAll(locusDir, os.ModePerm); err != nil {
 		return nil, err
 	}
 
 	l := &Locus{
-		locusId:  locusId,
 		locusDir: locusDir,
 		Config:   config,
 		points:   make(map[string]*Point),

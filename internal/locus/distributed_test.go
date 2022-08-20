@@ -12,16 +12,28 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDistributedLoci_Create_Append_Read(t *testing.T) {
-	distributedLoci_Leader := testCreatedDistributedLoci(t)
-	distributedLoci_Follower := testCreatedDistributedLoci(t)
+var (
+	pointId = "sample_test_file"
+)
 
-	err := distributedLoci_Leader.Join(distributedLoci_Follower.config.Distributed.StreamLayer.Addr().String(), 0)
+func TestDistributedLoci_Create_Append_Read(t *testing.T) {
+	dataDir_Leader, err := ioutil.TempDir("", "distributed-locus-test")
+	require.NoError(t, err)
+	defer os.RemoveAll(dataDir_Leader)
+
+	dataDir_Follower, err := ioutil.TempDir("", "distributed-locus-test")
+	require.NoError(t, err)
+	defer os.RemoveAll(dataDir_Follower)
+
+	distributedLoci_Leader := setupTestDistributedLoci(t, dataDir_Leader)
+	distributedLoci_Follower := setupTestDistributedLoci(t, dataDir_Follower)
+
+	err = distributedLoci_Leader.Join(distributedLoci_Follower.config.Distributed.StreamLayer.Addr().String(), 0)
 	require.NoError(t, err)
 
 	for i := 0; i < 10; i++ {
 		data := []byte(fmt.Sprintf("Test data line %d", i))
-		_, err := distributedLoci_Leader.Append(locusId, pointId, data)
+		_, err := distributedLoci_Leader.Append(pointId, data)
 		require.NoError(t, err)
 	}
 
@@ -32,7 +44,7 @@ func TestDistributedLoci_Create_Append_Read(t *testing.T) {
 		var pos uint64
 		for i := uint64(0); i < 10; i++ {
 			data := []byte(fmt.Sprintf("Test data line %d", i))
-			read, err := distributedLoci_Follower.Read(locusId, pointId, pos)
+			read, err := distributedLoci_Follower.Read(pointId, pos)
 			require.NoError(t, err)
 			require.Equal(t, data, read)
 			pos += uint64(len(data)) + lenWidth
@@ -40,11 +52,7 @@ func TestDistributedLoci_Create_Append_Read(t *testing.T) {
 	}
 }
 
-func testCreatedDistributedLoci(t *testing.T) *DistributedLoci {
-	dataDir, err := ioutil.TempDir("", "distributed-loci-test")
-	require.NoError(t, err)
-	defer os.RemoveAll(dataDir)
-
+func setupTestDistributedLoci(t *testing.T, dataDir string) *DistributedLoci {
 	listener, err := net.Listen("tcp", "localhost:0")
 	require.NoError(t, err)
 
@@ -54,7 +62,7 @@ func testCreatedDistributedLoci(t *testing.T) *DistributedLoci {
 		nil,
 		nil,
 	}
-	c.Distributed.LocalID = "distributed-loci-0"
+	c.Distributed.LocalID = "distributed-locus-0"
 	pointcronConfig := pointcron.Config{}
 	pointcronConfig.CloseTimeout = 3 * time.Second
 	pointcronConfig.TickTime = time.Second

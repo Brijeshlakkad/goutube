@@ -84,7 +84,6 @@ func TestAgent(t *testing.T) {
 	time.Sleep(3 * time.Second)
 
 	var (
-		locusId = "goutube-client"
 		pointId = "sample_file"
 		lines   = 10
 	)
@@ -94,7 +93,7 @@ func TestAgent(t *testing.T) {
 	require.NoError(t, err)
 
 	for i := 0; i < lines; i++ {
-		err := stream.Send(&streaming_api.ProduceRequest{Locus: locusId, Point: pointId, Frame: []byte(fmt.Sprintln(i))})
+		err := stream.Send(&streaming_api.ProduceRequest{Point: pointId, Frame: []byte(fmt.Sprintln(i))})
 		require.NoError(t, err)
 	}
 
@@ -106,7 +105,7 @@ func TestAgent(t *testing.T) {
 
 	// test consume stream
 	followerClient := client(t, agents[1], peerTLSConfig)
-	resStream, err := followerClient.ConsumeStream(context.Background(), &streaming_api.ConsumeRequest{Locus: locusId, Point: pointId})
+	resStream, err := followerClient.ConsumeStream(context.Background(), &streaming_api.ConsumeRequest{Point: pointId})
 	if err != nil {
 		log.Fatalf("error while calling ConsumeStream RPC: %v", err)
 	}

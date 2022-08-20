@@ -42,8 +42,8 @@ func TestLocus(t *testing.T) {
 			pointcronConfig.TickTime = time.Second
 			c.Point.pointScheduler = pointcron.NewPointScheduler(pointcronConfig)
 			c.Point.pointScheduler.StartAsync()
-			require.NoError(t, err)
-			log, err := newLocus(parentDir, locusClient, c)
+
+			log, err := NewLocus(parentDir, c)
 			require.NoError(t, err)
 
 			fn(t, log)

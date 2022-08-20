@@ -44,14 +44,13 @@ func NewServer(config *Config, opts ...grpc.ServerOption) (*grpc.Server, error) 
 	return gRPCServer, nil
 }
 
-type LociManager interface {
-	GetLoci() []string
-	GetPoints(string) []string
-	Append(string, string, []byte) (uint64, error)
-	Read(string, string, uint64) ([]byte, error)
-	ReadAt(string, string, []byte, int64) (int, error)
-	ClosePoint(string, string) error
-	CloseAll() error
+type Locus interface {
+	GetPoints() []string
+	Append(string, []byte) (uint64, error)
+	Read(string, uint64) ([]byte, error)
+	ReadAt(string, []byte, int64) (int, error)
+	ClosePoint(string) error
+	Close() error
 }
 
 // Interceptor reading the subject out of the client’s cert and writing it to the RPC’s context.

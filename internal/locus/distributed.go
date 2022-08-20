@@ -11,13 +11,14 @@ import (
 	"time"
 
 	streaming_api "github.com/Brijeshlakkad/goutube/api/streaming/v1"
+	"github.com/Brijeshlakkad/goutube/internal/locus/pointcron"
 
 	"google.golang.org/protobuf/proto"
 )
 
 type DistributedLoci struct {
 	config Config
-	loci   *LociManager
+	locus  *Locus
 
 	arc *Arc
 
@@ -36,36 +37,38 @@ func NewDistributedLoci(dataDir string, config Config) (
 	}
 	arcConfig := ArcConfig{
 		StreamLayer: config.Distributed.StreamLayer,
-		fsm:         &fsm{d.loci},
+		fsm:         &fsm{d.locus},
 	}
 	d.arc = NewArc(arcConfig)
 	return d, nil
 }
 
 func (d *DistributedLoci) setupLociManager(dataDir string) error {
-	lociDir := filepath.Join(dataDir, "loci")
+	lociDir := filepath.Join(dataDir, "locus")
 	// Create a hierarchy of directories if necessary
 	if err := os.MkdirAll(lociDir, 0755); err != nil {
 		return err
 	}
+	d.config.Point.pointScheduler = pointcron.NewPointScheduler(pointcron.Config{
+		CloseTimeout: d.config.Point.CloseTimeout,
+		TickTime:     d.config.Point.TickTime,
+	})
+	d.config.Point.pointScheduler.StartAsync()
+
 	var err error
-	d.loci, err = NewLociManager(lociDir, d.config)
+	d.locus, err = NewLocus(lociDir, d.config)
 	return err
 }
 
-func (d *DistributedLoci) GetLoci() []string {
-	return d.loci.GetLoci()
+func (d *DistributedLoci) GetPoints() []string {
+	return d.locus.GetPoints()
 }
 
-func (d *DistributedLoci) GetPoints(locusId string) []string {
-	return d.loci.GetPoints(locusId)
-}
-
-func (d *DistributedLoci) Append(locusId string, pointId string, b []byte) (pos uint64, err error) {
+func (d *DistributedLoci) Append(pointId string, b []byte) (pos uint64, err error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	apply, err := d.apply(AppendRequestType, &streaming_api.ProduceRequest{Locus: locusId, Point: pointId, Frame: b})
+	apply, err := d.apply(AppendRequestType, &streaming_api.ProduceRequest{Point: pointId, Frame: b})
 	if err != nil {
 		return 0, err
 	}
@@ -99,47 +102,33 @@ func (d *DistributedLoci) apply(reqType RequestType, req proto.Message) (
 	return res.Response, nil
 }
 
-func (d *DistributedLoci) Read(locusId string, pointId string, pos uint64) ([]byte, error) {
-	return d.loci.Read(locusId, pointId, pos)
+func (d *DistributedLoci) Read(pointId string, pos uint64) ([]byte, error) {
+	return d.locus.Read(pointId, pos)
 }
 
-func (d *DistributedLoci) ReadAt(locusId string, pointId string, b []byte, off int64) (int, error) {
-	return d.loci.ReadAt(locusId, pointId, b, off)
+func (d *DistributedLoci) ReadAt(pointId string, b []byte, off int64) (int, error) {
+	return d.locus.ReadAt(pointId, b, off)
 }
 
-func (d *DistributedLoci) Close(locusId string) error {
+func (d *DistributedLoci) ClosePoint(pointId string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	return d.loci.Close(locusId)
+	return d.locus.Close(pointId)
 }
 
-func (d *DistributedLoci) ClosePoint(locusId string, pointId string) error {
+func (d *DistributedLoci) Close() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	return d.loci.ClosePoint(locusId, pointId)
+	return d.locus.CloseAll()
 }
 
-func (d *DistributedLoci) CloseAll() error {
+func (d *DistributedLoci) Remove() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	return d.loci.CloseAll()
-}
-
-func (d *DistributedLoci) Remove(locusId string) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	return d.loci.Remove(locusId)
-}
-
-func (d *DistributedLoci) RemoveAll() error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	return d.loci.RemoveAll()
+	return d.locus.RemoveAll()
 }
 
 func (d *DistributedLoci) Join(rpcAddr string, vNodeCount int) error {
@@ -217,7 +206,7 @@ func (s *LocusStreamLayer) Addr() net.Addr {
 var _ FSM = (*fsm)(nil)
 
 type fsm struct {
-	loci *LociManager
+	locus *Locus
 }
 
 // Apply Invokes this method after committing a log entry.
@@ -237,7 +226,7 @@ func (l *fsm) applyAppend(b []byte) interface{} {
 	if err != nil {
 		return err
 	}
-	offset, err := l.loci.Append(req.GetLocus(), req.Point, req.GetFrame())
+	_, offset, err := l.locus.Append(req.GetPoint(), req.GetFrame())
 	if err != nil {
 		return err
 	}

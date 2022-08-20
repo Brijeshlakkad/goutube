@@ -21,10 +21,8 @@ import (
 )
 
 var (
-	locusId   = "goutube-client"
-	pointId   = "sample_file"
-	locusId_2 = "second-goutube-client"
-	lines     = 10
+	pointId = "sample_file"
+	lines   = 10
 )
 
 func TestServer(t *testing.T) {
@@ -74,13 +72,13 @@ func setupTest(t *testing.T, fn func()) (
 
 	locusConfig := locus.Config{}
 	locusConfig.Point.CloseTimeout = 10 * time.Second
-	lociManager, err := locus.NewLociManager(dir, locusConfig)
+	locus, err := locus.NewDistributedLoci(dir, locusConfig)
 	require.NoError(t, err)
 
 	cfg := &Config{
 		StreamingConfig: &StreamingConfig{
-			LociManager: lociManager,
-			Authorizer:  authorizer,
+			Locus:      locus,
+			Authorizer: authorizer,
 		},
 	}
 
@@ -113,7 +111,7 @@ func setupTest(t *testing.T, fn func()) (
 		gRPCServer.Stop()
 		conn.Close()
 		l.Close()
-		err := lociManager.RemoveAll()
+		err := locus.Remove()
 		fmt.Println(err)
 	}
 }
@@ -127,7 +125,7 @@ func testProduceConsumeStream(
 	require.NoError(t, err)
 
 	for i := 0; i < lines; i++ {
-		err := stream.Send(&streaming_api.ProduceRequest{Locus: locusId, Point: pointId, Frame: []byte(fmt.Sprintln(i))})
+		err := stream.Send(&streaming_api.ProduceRequest{Point: pointId, Frame: []byte(fmt.Sprintln(i))})
 		require.NoError(t, err)
 	}
 
@@ -137,7 +135,7 @@ func testProduceConsumeStream(
 	require.Equal(t, uint64(90), resp.Offset)
 
 	// test consume stream
-	resStream, err := client.ConsumeStream(context.Background(), &streaming_api.ConsumeRequest{Locus: locusId, Point: pointId})
+	resStream, err := client.ConsumeStream(context.Background(), &streaming_api.ConsumeRequest{Point: pointId})
 	if err != nil {
 		log.Fatalf("error while calling ConsumeStream RPC: %v", err)
 	}
