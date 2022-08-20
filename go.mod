@@ -19,6 +19,7 @@ require (
 	github.com/spf13/viper v1.12.0
 	github.com/stretchr/testify v1.8.0
 	github.com/travisjeffery/go-dynaport v1.0.0
+	github.com/tysonmote/gommap v0.0.2
 	go.opencensus.io v0.23.0
 	go.uber.org/atomic v1.10.0 // indirect
 	go.uber.org/multierr v1.8.0 // indirect
