@@ -72,12 +72,22 @@ func setupTest(t *testing.T, fn func()) (
 
 	locusConfig := locus.Config{}
 	locusConfig.Point.CloseTimeout = 10 * time.Second
-	locus, err := locus.NewDistributedLoci(dir, locusConfig)
+
+	lociLn, err := net.Listen("tcp", "localhost:0")
+	require.NoError(t, err)
+
+	locusConfig.Distributed.StreamLayer = locus.NewStreamLayer(
+		lociLn,
+		nil,
+		nil,
+	)
+	locusConfig.Distributed.BindAdr = "localhost:0"
+	locusInstance, err := locus.NewDistributedLoci(dir, locusConfig)
 	require.NoError(t, err)
 
 	cfg := &Config{
 		StreamingConfig: &StreamingConfig{
-			Locus:      locus,
+			Locus:      locusInstance,
 			Authorizer: authorizer,
 		},
 	}
@@ -111,8 +121,7 @@ func setupTest(t *testing.T, fn func()) (
 		gRPCServer.Stop()
 		conn.Close()
 		l.Close()
-		err := locus.Remove()
-		fmt.Println(err)
+		locusInstance.Remove()
 	}
 }
 
@@ -132,7 +141,9 @@ func testProduceConsumeStream(
 	resp, err := stream.CloseAndRecv()
 	require.NoError(t, err)
 
-	require.Equal(t, uint64(90), resp.Offset)
+	require.Equal(t, 1, len(resp.Records))
+	require.Equal(t, pointId, resp.Records[0].Point)
+	require.Equal(t, uint64(90), resp.Records[0].Offset)
 
 	// test consume stream
 	resStream, err := client.ConsumeStream(context.Background(), &streaming_api.ConsumeRequest{Point: pointId})

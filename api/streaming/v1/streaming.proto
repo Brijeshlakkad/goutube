@@ -23,5 +23,10 @@ message ProduceRequest {
 }
 
 message ProduceResponse {
-    uint64 offset = 1;
+    repeated Record records = 1;
+}
+
+message Record {
+    string point = 1;
+    uint64 offset = 2;
 }

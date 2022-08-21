@@ -174,7 +174,7 @@ type ProduceResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Offset uint64 `protobuf:"varint,1,opt,name=offset,proto3" json:"offset,omitempty"`
+	Records []*Record `protobuf:"bytes,1,rep,name=records,proto3" json:"records,omitempty"`
 }
 
 func (x *ProduceResponse) Reset() {
@@ -209,7 +209,62 @@ func (*ProduceResponse) Descriptor() ([]byte, []int) {
 	return file_api_streaming_v1_streaming_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *ProduceResponse) GetOffset() uint64 {
+func (x *ProduceResponse) GetRecords() []*Record {
+	if x != nil {
+		return x.Records
+	}
+	return nil
+}
+
+type Record struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Point  string `protobuf:"bytes,1,opt,name=point,proto3" json:"point,omitempty"`
+	Offset uint64 `protobuf:"varint,2,opt,name=offset,proto3" json:"offset,omitempty"`
+}
+
+func (x *Record) Reset() {
+	*x = Record{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_api_streaming_v1_streaming_proto_msgTypes[4]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *Record) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Record) ProtoMessage() {}
+
+func (x *Record) ProtoReflect() protoreflect.Message {
+	mi := &file_api_streaming_v1_streaming_proto_msgTypes[4]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Record.ProtoReflect.Descriptor instead.
+func (*Record) Descriptor() ([]byte, []int) {
+	return file_api_streaming_v1_streaming_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *Record) GetPoint() string {
+	if x != nil {
+		return x.Point
+	}
+	return ""
+}
+
+func (x *Record) GetOffset() uint64 {
 	if x != nil {
 		return x.Offset
 	}
@@ -231,8 +286,13 @@ var file_api_streaming_v1_streaming_proto_rawDesc = []byte{
 	0x65, 0x73, 0x74, 0x12, 0x14, 0x0a, 0x05, 0x70, 0x6f, 0x69, 0x6e, 0x74, 0x18, 0x01, 0x20, 0x01,
 	0x28, 0x09, 0x52, 0x05, 0x70, 0x6f, 0x69, 0x6e, 0x74, 0x12, 0x14, 0x0a, 0x05, 0x66, 0x72, 0x61,
 	0x6d, 0x65, 0x18, 0x03, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x05, 0x66, 0x72, 0x61, 0x6d, 0x65, 0x22,
-	0x29, 0x0a, 0x0f, 0x50, 0x72, 0x6f, 0x64, 0x75, 0x63, 0x65, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e,
-	0x73, 0x65, 0x12, 0x16, 0x0a, 0x06, 0x6f, 0x66, 0x66, 0x73, 0x65, 0x74, 0x18, 0x01, 0x20, 0x01,
+	0x41, 0x0a, 0x0f, 0x50, 0x72, 0x6f, 0x64, 0x75, 0x63, 0x65, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e,
+	0x73, 0x65, 0x12, 0x2e, 0x0a, 0x07, 0x72, 0x65, 0x63, 0x6f, 0x72, 0x64, 0x73, 0x18, 0x01, 0x20,
+	0x03, 0x28, 0x0b, 0x32, 0x14, 0x2e, 0x73, 0x74, 0x72, 0x65, 0x61, 0x6d, 0x69, 0x6e, 0x67, 0x2e,
+	0x76, 0x31, 0x2e, 0x52, 0x65, 0x63, 0x6f, 0x72, 0x64, 0x52, 0x07, 0x72, 0x65, 0x63, 0x6f, 0x72,
+	0x64, 0x73, 0x22, 0x36, 0x0a, 0x06, 0x52, 0x65, 0x63, 0x6f, 0x72, 0x64, 0x12, 0x14, 0x0a, 0x05,
+	0x70, 0x6f, 0x69, 0x6e, 0x74, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x05, 0x70, 0x6f, 0x69,
+	0x6e, 0x74, 0x12, 0x16, 0x0a, 0x06, 0x6f, 0x66, 0x66, 0x73, 0x65, 0x74, 0x18, 0x02, 0x20, 0x01,
 	0x28, 0x04, 0x52, 0x06, 0x6f, 0x66, 0x66, 0x73, 0x65, 0x74, 0x32, 0xaf, 0x01, 0x0a, 0x09, 0x53,
 	0x74, 0x72, 0x65, 0x61, 0x6d, 0x69, 0x6e, 0x67, 0x12, 0x50, 0x0a, 0x0d, 0x43, 0x6f, 0x6e, 0x73,
 	0x75, 0x6d, 0x65, 0x53, 0x74, 0x72, 0x65, 0x61, 0x6d, 0x12, 0x1c, 0x2e, 0x73, 0x74, 0x72, 0x65,
@@ -263,23 +323,25 @@ func file_api_streaming_v1_streaming_proto_rawDescGZIP() []byte {
 	return file_api_streaming_v1_streaming_proto_rawDescData
 }
 
-var file_api_streaming_v1_streaming_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_api_streaming_v1_streaming_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_api_streaming_v1_streaming_proto_goTypes = []interface{}{
 	(*ConsumeRequest)(nil),  // 0: streaming.v1.ConsumeRequest
 	(*ConsumeResponse)(nil), // 1: streaming.v1.ConsumeResponse
 	(*ProduceRequest)(nil),  // 2: streaming.v1.ProduceRequest
 	(*ProduceResponse)(nil), // 3: streaming.v1.ProduceResponse
+	(*Record)(nil),          // 4: streaming.v1.Record
 }
 var file_api_streaming_v1_streaming_proto_depIdxs = []int32{
-	0, // 0: streaming.v1.Streaming.ConsumeStream:input_type -> streaming.v1.ConsumeRequest
-	2, // 1: streaming.v1.Streaming.ProduceStream:input_type -> streaming.v1.ProduceRequest
-	1, // 2: streaming.v1.Streaming.ConsumeStream:output_type -> streaming.v1.ConsumeResponse
-	3, // 3: streaming.v1.Streaming.ProduceStream:output_type -> streaming.v1.ProduceResponse
-	2, // [2:4] is the sub-list for method output_type
-	0, // [0:2] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	4, // 0: streaming.v1.ProduceResponse.records:type_name -> streaming.v1.Record
+	0, // 1: streaming.v1.Streaming.ConsumeStream:input_type -> streaming.v1.ConsumeRequest
+	2, // 2: streaming.v1.Streaming.ProduceStream:input_type -> streaming.v1.ProduceRequest
+	1, // 3: streaming.v1.Streaming.ConsumeStream:output_type -> streaming.v1.ConsumeResponse
+	3, // 4: streaming.v1.Streaming.ProduceStream:output_type -> streaming.v1.ProduceResponse
+	3, // [3:5] is the sub-list for method output_type
+	1, // [1:3] is the sub-list for method input_type
+	1, // [1:1] is the sub-list for extension type_name
+	1, // [1:1] is the sub-list for extension extendee
+	0, // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_api_streaming_v1_streaming_proto_init() }
@@ -336,6 +398,18 @@ func file_api_streaming_v1_streaming_proto_init() {
 				return nil
 			}
 		}
+		file_api_streaming_v1_streaming_proto_msgTypes[4].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*Record); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -343,7 +417,7 @@ func file_api_streaming_v1_streaming_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_api_streaming_v1_streaming_proto_rawDesc,
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

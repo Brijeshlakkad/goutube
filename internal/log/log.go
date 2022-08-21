@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	ErrOffsetOutOfRange = errors.New("the requested offset is outside the log's range.")
+	ErrOffsetOutOfRange = errors.New("the requested offset is outside the log's range")
 )
 
 type Log struct {
@@ -76,7 +76,6 @@ func (l *Log) setup() error {
 func (l *Log) Append(record *Record) (uint64, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	// https://github.com/travisjeffery/proglog/issues/6
 	off, err := l.activeSegment.Append(record)
 	if err != nil {
 		return 0, err
@@ -138,7 +137,7 @@ func (l *Log) Reset() error {
 	return l.setup()
 }
 
-// To know what nodes have the oldest and newest data and what nodes are falling behind and need to replicate.
+// LowestOffset To know what nodes have the oldest and newest data and what nodes are falling behind and need to replicate.
 func (l *Log) LowestOffset() (uint64, error) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
@@ -155,7 +154,7 @@ func (l *Log) HighestOffset() (uint64, error) {
 	return off - 1, nil
 }
 
-// (In the future, periodically) call Truncate to remove old segments whose data we (hopefully) have processed by then and don’t need anymore.
+// Truncate (In the future, periodically) call Truncate to remove old segments whose data we (hopefully) have processed by then and don’t need anymore.
 func (l *Log) Truncate(lowest uint64) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -170,6 +169,27 @@ func (l *Log) Truncate(lowest uint64) error {
 		segments = append(segments, s)
 	}
 	l.segments = segments
+	return nil
+}
+
+func (l *Log) GetLog(index uint64, out *Record) error {
+	in, err := l.Read(index)
+	if err != nil {
+		return err
+	}
+	out.Value = in.Value
+	out.Offset = in.Offset
+	return nil
+}
+
+func (l *Log) StoreLogs(records []*Record) error {
+	for _, record := range records {
+		if _, err := l.Append(&Record{
+			Value: record.Value,
+		}); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -195,7 +215,6 @@ func (o *originReader) Read(p []byte) (int, error) {
 }
 
 type Record struct {
-	Value  []byte
+	Value  interface{}
 	Offset uint64
-	Term   uint64
 }

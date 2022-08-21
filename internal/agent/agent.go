@@ -122,8 +122,6 @@ func (a *Agent) setupLoci() error {
 
 	a.membership.AddListener("locimanager", a.loci)
 
-	// TODO: Bootstrap
-
 	return err
 }
 

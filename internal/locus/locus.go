@@ -3,7 +3,6 @@ package locus
 import (
 	"io/ioutil"
 	"os"
-	"path/filepath"
 	"sync"
 
 	streaming_api "github.com/Brijeshlakkad/goutube/api/streaming/v1"
@@ -18,13 +17,7 @@ type Locus struct {
 	points map[string]*Point
 }
 
-func NewLocus(parentDir string, config Config) (*Locus, error) {
-	// Create a hierarchy of directories if necessary
-	locusDir := filepath.Join(parentDir, "locus")
-	if err := os.MkdirAll(locusDir, os.ModePerm); err != nil {
-		return nil, err
-	}
-
+func NewLocus(locusDir string, config Config) (*Locus, error) {
 	l := &Locus{
 		locusDir: locusDir,
 		Config:   config,
@@ -98,17 +91,17 @@ func (l *Locus) Append(pointId string, b []byte) (n uint64, pos uint64, err erro
 	return point.Append(b)
 }
 
-func (l *Locus) Read(pointId string, pos uint64) ([]byte, error) {
+func (l *Locus) Read(pointId string, pos uint64) (uint64, []byte, error) {
 	point, err := l.get(pointId)
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
 	defer l.Config.Point.pointScheduler.Enqueue(point)
 
 	return point.Read(pos)
 }
 
-func (l *Locus) ReadAt(pointId string, b []byte, off int64) (int, error) {
+func (l *Locus) ReadAt(pointId string, b []byte, off uint64) (int, error) {
 	point, err := l.get(pointId)
 	if err != nil {
 		return 0, err

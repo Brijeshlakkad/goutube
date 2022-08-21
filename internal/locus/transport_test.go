@@ -26,11 +26,15 @@ func TestTransport_SendCommand(t *testing.T) {
 	rpcCh := trans1.Consumer()
 
 	// Make the RPC request
-	args := CommandRequest{
-		Data: DummyData,
+	args := RecordEntriesRequest{
+		Entries: []*RecordRequest{
+			{
+				Data: DummyData,
+			},
+		},
 	}
 
-	resp := CommandResponse{
+	resp := RecordEntriesResponse{
 		Response: int64(1),
 	}
 
@@ -40,7 +44,7 @@ func TestTransport_SendCommand(t *testing.T) {
 			select {
 			case rpc := <-rpcCh:
 				// Verify the command
-				req := rpc.Command.(*CommandRequest)
+				req := rpc.Command.(*RecordEntriesRequest)
 				if !reflect.DeepEqual(req, &args) {
 					t.Errorf("command mismatch: %#v %#v", *req, args)
 					return
@@ -72,7 +76,7 @@ func TestTransport_SendCommand(t *testing.T) {
 
 	appendFunc := func() {
 		defer wg.Done()
-		var out CommandResponse
+		var out RecordEntriesResponse
 		if err := trans2.SendCommand(trans1.LocalAddr(), &args, &out); err != nil {
 			t.Fatalf("err: %v", err)
 		}
@@ -122,11 +126,15 @@ func TestNetworkTransport_SendCommandPipeline(t *testing.T) {
 	rpcCh := trans1.Consumer()
 
 	// Make the RPC request
-	args := CommandRequest{
-		Data: DummyData,
+	args := RecordEntriesRequest{
+		Entries: []*RecordRequest{
+			{
+				Data: DummyData,
+			},
+		},
 	}
 
-	resp := CommandResponse{
+	resp := RecordEntriesResponse{
 		Response: int64(1),
 	}
 
@@ -136,7 +144,7 @@ func TestNetworkTransport_SendCommandPipeline(t *testing.T) {
 		select {
 		case rpc := <-rpcCh:
 			// Verify the command
-			req := rpc.Command.(*CommandRequest)
+			req := rpc.Command.(*RecordEntriesRequest)
 			if !reflect.DeepEqual(req, &args) {
 				t.Errorf("command mismatch: %#v %#v", *req, args)
 				return
@@ -166,7 +174,7 @@ func TestNetworkTransport_SendCommandPipeline(t *testing.T) {
 	require.NoError(t, err)
 
 	//for i := 0; i < 10; i++ {
-	pipelineResp := new(CommandResponse)
+	pipelineResp := new(RecordEntriesResponse)
 	_, err = pipeline.SendCommand(&args, pipelineResp)
 	require.NoError(t, err)
 	//}

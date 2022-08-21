@@ -34,17 +34,21 @@ func (s *StreamingManager) ProduceStream(stream streaming_api.Streaming_ProduceS
 	); err != nil {
 		return err
 	}
-	points := make(map[string]bool)
-	defer (func() {
-		for pointId, _ := range points {
-			_ = s.Locus.ClosePoint(pointId)
-		}
-	})()
+	points := make(map[string]uint64)
 	var lastOffset uint64
 	for {
 		req, err := stream.Recv()
 		if err == io.EOF {
-			if err := stream.SendAndClose(&streaming_api.ProduceResponse{Offset: lastOffset}); err != nil {
+			var resp []*streaming_api.Record
+			for pointId, pointOffset := range points {
+				record := &streaming_api.Record{
+					Point:  pointId,
+					Offset: pointOffset,
+				}
+				_ = s.Locus.ClosePoint(pointId)
+				resp = append(resp, record)
+			}
+			if err := stream.SendAndClose(&streaming_api.ProduceResponse{Records: resp}); err != nil {
 				return err
 			}
 			return nil
@@ -52,13 +56,10 @@ func (s *StreamingManager) ProduceStream(stream streaming_api.Streaming_ProduceS
 		if err != nil {
 			return err
 		}
-		var pointId string = req.GetPoint()
-
-		points[pointId] = true
-
-		if lastOffset, err = s.Locus.Append(pointId, req.GetFrame()); err != nil {
+		if lastOffset, err = s.Locus.Append(req); err != nil {
 			return err
 		}
+		points[req.GetPoint()] = lastOffset
 	}
 }
 
@@ -72,7 +73,7 @@ func (s *StreamingManager) ConsumeStream(req *streaming_api.ConsumeRequest, stre
 	}
 	pointId := req.GetPoint()
 	defer s.Locus.ClosePoint(pointId)
-	off := int64(0)
+	off := uint64(0)
 	lenWidth := 8
 	for {
 		select {
@@ -84,7 +85,7 @@ func (s *StreamingManager) ConsumeStream(req *streaming_api.ConsumeRequest, stre
 			if err != nil {
 				return nil
 			}
-			off += int64(n)
+			off += uint64(n)
 
 			size := enc.Uint64(buf)
 			buf = make([]byte, size)
@@ -92,7 +93,7 @@ func (s *StreamingManager) ConsumeStream(req *streaming_api.ConsumeRequest, stre
 			if err != nil {
 				return err
 			}
-			off += int64(n)
+			off += uint64(n)
 
 			if err := stream.Send(&streaming_api.ConsumeResponse{Frame: buf}); err != nil {
 				return err

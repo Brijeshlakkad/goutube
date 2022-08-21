@@ -46,9 +46,9 @@ func NewServer(config *Config, opts ...grpc.ServerOption) (*grpc.Server, error) 
 
 type Locus interface {
 	GetPoints() []string
-	Append(string, []byte) (uint64, error)
+	Append(record *streaming_api.ProduceRequest) (pos uint64, err error)
 	Read(string, uint64) ([]byte, error)
-	ReadAt(string, []byte, int64) (int, error)
+	ReadAt(string, []byte, uint64) (int, error)
 	ClosePoint(string) error
 	Close() error
 }

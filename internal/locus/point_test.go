@@ -1,11 +1,12 @@
 package locus
 
 import (
-	"github.com/stretchr/testify/require"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -34,9 +35,9 @@ func TestPointAppendRead(t *testing.T) {
 func testAppend(t *testing.T, p *Point) {
 	t.Helper()
 	for i := uint64(1); i < 4; i++ {
-		n, pos, err := p.Append(write)
+		n, _, err := p.Append(write)
 		require.NoError(t, err)
-		require.Equal(t, pos+n, width*i)
+		require.Equal(t, n, width*i)
 	}
 }
 
@@ -44,21 +45,22 @@ func testRead(t *testing.T, p *Point) {
 	t.Helper()
 	var pos uint64
 	for i := uint64(1); i < 4; i++ {
-		read, err := p.Read(pos)
+		nextOffset, read, err := p.Read(pos)
 		require.NoError(t, err)
 		require.Equal(t, write, read)
 		pos += width
+		require.Equal(t, pos, nextOffset)
 	}
 }
 
 func testReadAt(t *testing.T, p *Point) {
 	t.Helper()
-	for i, off := uint64(1), int64(0); i < 4; i++ {
+	for i, off := uint64(1), uint64(0); i < 4; i++ {
 		b := make([]byte, lenWidth)
 		n, err := p.ReadAt(b, off)
 		require.NoError(t, err)
 		require.Equal(t, lenWidth, n)
-		off += int64(n)
+		off += uint64(n)
 
 		size := enc.Uint64(b)
 		b = make([]byte, size)
@@ -66,7 +68,7 @@ func testReadAt(t *testing.T, p *Point) {
 		require.NoError(t, err)
 		require.Equal(t, write, b)
 		require.Equal(t, int(size), n)
-		off += int64(n)
+		off += uint64(n)
 	}
 }
 

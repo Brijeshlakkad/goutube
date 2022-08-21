@@ -73,7 +73,7 @@ func testPointAppendRead(t *testing.T, locus *Locus) {
 	require.Equal(t, uint64(0), pos)
 	require.NoError(t, err)
 
-	b, err := locus.Read(point.pointId, 0)
+	_, b, err := locus.Read(point.pointId, 0)
 	require.Equal(t, b, testWrite)
 }
 
@@ -121,7 +121,7 @@ func testRemovePointer(t *testing.T, locus *Locus) {
 
 	err = locus.Remove(pId)
 
-	_, err = locus.Read(pId, 0)
+	_, _, err = locus.Read(pId, 0)
 	apiErr := err.(streaming_api.PointNotFound)
 	require.Equal(t, pId, apiErr.PointId)
 }

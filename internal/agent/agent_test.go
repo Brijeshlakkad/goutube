@@ -45,18 +45,20 @@ func TestAgent(t *testing.T) {
 		bindAddr := fmt.Sprintf("%s:%d", "127.0.0.1", ports[0])
 		rpcPort := ports[1]
 
-		dataDir, err := ioutil.TempDir("", "agent-test-loci")
+		dataDir, err := ioutil.TempDir("", "agentInstance-test-loci")
 		require.NoError(t, err)
 
 		var startJoinAddrs []string
+		bootstrap := true
 		if i != 0 {
+			bootstrap = false
 			startJoinAddrs = append(
 				startJoinAddrs,
 				agents[0].Config.BindAddr,
 			)
 		}
 
-		agent, err := agent.New(agent.Config{
+		agentInstance, err := agent.New(agent.Config{
 			NodeName:        fmt.Sprintf("%d", i),
 			SeedAddresses:   startJoinAddrs,
 			BindAddr:        bindAddr,
@@ -66,17 +68,18 @@ func TestAgent(t *testing.T) {
 			ACLPolicyFile:   config.ACLPolicyFile,
 			ServerTLSConfig: serverTLSConfig,
 			PeerTLSConfig:   peerTLSConfig,
+			Bootstrap:       bootstrap,
 		})
 		require.NoError(t, err)
 
-		agents = append(agents, agent)
+		agents = append(agents, agentInstance)
 	}
 	defer func() {
-		for _, agent := range agents {
-			err := agent.Shutdown()
+		for _, agentInstance := range agents {
+			err := agentInstance.Shutdown()
 			require.NoError(t, err)
 			require.NoError(t,
-				os.RemoveAll(agent.Config.DataDir),
+				os.RemoveAll(agentInstance.Config.DataDir),
 			)
 		}
 	}()
