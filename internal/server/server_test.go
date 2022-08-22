@@ -21,10 +21,8 @@ import (
 )
 
 var (
-	locusId   = "goutube-client"
-	pointId   = "sample_file"
-	locusId_2 = "second-goutube-client"
-	lines     = 10
+	pointId = "sample_file"
+	lines   = 10
 )
 
 func TestServer(t *testing.T) {
@@ -74,13 +72,23 @@ func setupTest(t *testing.T, fn func()) (
 
 	locusConfig := locus.Config{}
 	locusConfig.Point.CloseTimeout = 10 * time.Second
-	lociManager, err := locus.NewLociManager(dir, locusConfig)
+
+	lociLn, err := net.Listen("tcp", "localhost:0")
+	require.NoError(t, err)
+
+	locusConfig.Distributed.StreamLayer = locus.NewStreamLayer(
+		lociLn,
+		nil,
+		nil,
+	)
+	locusConfig.Distributed.BindAdr = "localhost:0"
+	locusInstance, err := locus.NewDistributedLoci(dir, locusConfig)
 	require.NoError(t, err)
 
 	cfg := &Config{
 		StreamingConfig: &StreamingConfig{
-			LociManager: lociManager,
-			Authorizer:  authorizer,
+			Locus:      locusInstance,
+			Authorizer: authorizer,
 		},
 	}
 
@@ -113,8 +121,7 @@ func setupTest(t *testing.T, fn func()) (
 		gRPCServer.Stop()
 		conn.Close()
 		l.Close()
-		err := lociManager.RemoveAll()
-		fmt.Println(err)
+		locusInstance.Remove()
 	}
 }
 
@@ -127,17 +134,19 @@ func testProduceConsumeStream(
 	require.NoError(t, err)
 
 	for i := 0; i < lines; i++ {
-		err := stream.Send(&streaming_api.ProduceRequest{Locus: locusId, Point: pointId, Frame: []byte(fmt.Sprintln(i))})
+		err := stream.Send(&streaming_api.ProduceRequest{Point: pointId, Frame: []byte(fmt.Sprintln(i))})
 		require.NoError(t, err)
 	}
 
 	resp, err := stream.CloseAndRecv()
 	require.NoError(t, err)
 
-	require.Equal(t, uint64(90), resp.Offset)
+	require.Equal(t, 1, len(resp.Records))
+	require.Equal(t, pointId, resp.Records[0].Point)
+	require.Equal(t, uint64(90), resp.Records[0].Offset)
 
 	// test consume stream
-	resStream, err := client.ConsumeStream(context.Background(), &streaming_api.ConsumeRequest{Locus: locusId, Point: pointId})
+	resStream, err := client.ConsumeStream(context.Background(), &streaming_api.ConsumeRequest{Point: pointId})
 	if err != nil {
 		log.Fatalf("error while calling ConsumeStream RPC: %v", err)
 	}

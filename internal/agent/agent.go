@@ -122,8 +122,6 @@ func (a *Agent) setupLoci() error {
 
 	a.membership.AddListener("locimanager", a.loci)
 
-	// TODO: Bootstrap
-
 	return err
 }
 
@@ -134,8 +132,8 @@ func (a *Agent) setupServer() error {
 	)
 	serverConfig := &server.Config{
 		StreamingConfig: &server.StreamingConfig{
-			LociManager: a.loci,
-			Authorizer:  authorizer,
+			Locus:      a.loci,
+			Authorizer: authorizer,
 		},
 	}
 	var opts []grpc.ServerOption
@@ -184,7 +182,7 @@ func (a *Agent) Shutdown() error {
 			a.server.GracefulStop()
 			return nil
 		},
-		a.loci.CloseAll,
+		a.loci.Close,
 	}
 	for _, fn := range shutdown {
 		if err := fn(); err != nil {

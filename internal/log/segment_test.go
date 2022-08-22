@@ -13,7 +13,9 @@ func TestSegment(t *testing.T) {
 	dir, _ := ioutil.TempDir("", "segment-test")
 	defer os.RemoveAll(dir)
 
-	want := &Record{Value: []byte("hello world")}
+	want := &Record{
+		Value: write,
+	}
 
 	c := Config{}
 	c.Segment.MaxStoreBytes = 1024
@@ -40,7 +42,7 @@ func TestSegment(t *testing.T) {
 	// maxed index
 	require.True(t, s.IsMaxed())
 
-	c.Segment.MaxStoreBytes = uint64(len(want.Value) * 3)
+	c.Segment.MaxStoreBytes = uint64(len([]byte(want.Value.(string))) * 3)
 	c.Segment.MaxIndexBytes = 1024
 
 	// segment must be closed

@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	write = []byte("hello world")
+	write = "hello world"
 )
 
 func TestStoreAppendRead(t *testing.T) {

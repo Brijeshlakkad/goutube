@@ -1,77 +1,82 @@
 package locus
 
-type CommandRequest struct {
+type RecordRequest struct {
 	Data []byte
 }
 
-type CommandResponse struct {
+type RecordResponse struct {
+	LastOff  uint64
 	Response interface{}
 }
 
+type FSMRecordResponse struct {
+	StoreKey   interface{}
+	StoreValue interface{}
+	Response   interface{}
+}
+
 type Promise interface {
+	Error() error
 	Response() interface{}
 }
 
-type CommandPromise struct {
-	req  *CommandRequest
-	resp *CommandResponse
-
+type promiseError struct {
 	err        error
 	errCh      chan error
 	responded  bool
 	ShutdownCh chan struct{}
 }
 
-func NewCommandPromise(req *CommandRequest) *CommandPromise {
-	return &CommandPromise{
-		req:        req,
-		resp:       &CommandResponse{},
-		errCh:      make(chan error, 1),
-		ShutdownCh: make(chan struct{}),
+func (p *promiseError) init() {
+	p.errCh = make(chan error, 1)
+}
+
+func (p *promiseError) Error() error {
+	if p.err != nil {
+		return p.err
 	}
-}
-
-func (c *CommandPromise) init() {
-	c.errCh = make(chan error, 1)
-}
-
-func (c *CommandPromise) Request() *CommandRequest {
-	return c.req
-}
-
-func (c *CommandPromise) Response() interface{} {
-	return c.resp
-}
-
-func (c *CommandPromise) Error() error {
-	if c.err != nil {
-		return c.err
-	}
-	if c.errCh == nil {
+	if p.errCh == nil {
 		panic("waiting for response on nil channel")
 	}
 	select {
-	case c.err = <-c.errCh:
-	case <-c.ShutdownCh:
-		c.err = ErrArcShutdown
+	case p.err = <-p.errCh:
+	case <-p.ShutdownCh:
+		p.err = ErrArcShutdown
 	}
-	return c.err
+	return p.err
 }
 
-func (c *CommandPromise) respond(resp interface{}) *CommandPromise {
+func (p *promiseError) respondError(err error) {
+	if p.responded {
+		return
+	}
+	if p.errCh != nil {
+		p.errCh <- err
+		close(p.errCh)
+	}
+	p.responded = true
+}
+
+type RecordPromise struct {
+	promiseError
+	req  *RecordRequest
+	resp *RecordResponse
+}
+
+func (c *RecordPromise) init() {
+	c.promiseError.init()
+}
+
+func (c *RecordPromise) Request() *RecordRequest {
+	return c.req
+}
+
+func (c *RecordPromise) Response() interface{} {
+	return c.resp
+}
+
+func (c *RecordPromise) respond(resp interface{}) *RecordPromise {
 	c.resp.Response = resp
-	return c
-}
-
-func (c *CommandPromise) respondError(err error) *CommandPromise {
-	if c.responded {
-		return c
-	}
-	if c.errCh != nil {
-		c.errCh <- err
-		close(c.errCh)
-	}
-	c.responded = true
 	return c
 }
 
@@ -93,12 +98,12 @@ func (r *RPC) Respond(resp interface{}, err error) {
 }
 
 type ReplicateCommandPromise struct {
-	req      *CommandRequest
+	req      *RecordRequest
 	expected interface{}
-	resp     *CommandResponse
+	resp     *RecordResponse
 }
 
-func NewReplicateCommandPromise(req *CommandRequest, expected interface{}) *ReplicateCommandPromise {
+func NewReplicateCommandPromise(req *RecordRequest, expected interface{}) *ReplicateCommandPromise {
 	return &ReplicateCommandPromise{
 		req:      req,
 		expected: expected,
@@ -109,10 +114,46 @@ type shutdownPromise struct {
 	arc *Arc
 }
 
-func (s *shutdownPromise) Response() interface{} {
+func (s *shutdownPromise) Error() error {
 	if s.arc == nil {
 		return nil
 	}
 	s.arc.waitShutdown()
 	return nil
+}
+
+func (s *shutdownPromise) Response() interface{} {
+	return nil
+}
+
+type RecordEntriesRequest struct {
+	Entries []*RecordRequest
+}
+
+type RecordEntriesResponse struct {
+	LastOff  uint64
+	Response interface{}
+}
+
+type RecordEntriesPromise struct {
+	promiseError
+	req  *RecordEntriesRequest
+	resp *RecordEntriesResponse
+}
+
+func (c *RecordEntriesPromise) init() {
+	c.promiseError.init()
+}
+
+func (c *RecordEntriesPromise) Request() *RecordEntriesRequest {
+	return c.req
+}
+
+func (c *RecordEntriesPromise) Response() interface{} {
+	return c.resp
+}
+
+func (c *RecordEntriesPromise) respond(resp interface{}) *RecordEntriesPromise {
+	c.resp.Response = resp
+	return c
 }

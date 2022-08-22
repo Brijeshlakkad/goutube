@@ -257,7 +257,7 @@ func (transport *Transport) PrepareCommandTransport(target ServerAddress) (Comma
 }
 
 // SendCommand implements the Transport interface.
-func (transport *Transport) SendCommand(target ServerAddress, req *CommandRequest, resp *CommandResponse) error {
+func (transport *Transport) SendCommand(target ServerAddress, req *RecordEntriesRequest, resp *RecordEntriesResponse) error {
 	return transport.genericRPC(target, req, resp)
 }
 
@@ -362,7 +362,7 @@ func (transport *Transport) handleConn(connCtx context.Context, conn net.Conn) {
 
 // handleCommand is used to decode and dispatch a single command.
 func (transport *Transport) handleCommand(dec *codec.Decoder, enc *codec.Encoder) error {
-	var req CommandRequest
+	var req RecordEntriesRequest
 
 	if err := dec.Decode(&req); err != nil {
 		return err
@@ -432,7 +432,7 @@ type commandPipeline struct {
 	trans *Transport
 
 	doneCh       chan Promise
-	inprogressCh chan *CommandPromise
+	inprogressCh chan *RecordEntriesPromise
 
 	shutdown     bool
 	shutdownCh   chan struct{}
@@ -446,7 +446,7 @@ func newNetPipeline(trans *Transport, conn *netConn) *commandPipeline {
 		conn:         conn,
 		trans:        trans,
 		doneCh:       make(chan Promise, rpcMaxPipeline),
-		inprogressCh: make(chan *CommandPromise, rpcMaxPipeline),
+		inprogressCh: make(chan *RecordEntriesPromise, rpcMaxPipeline),
 		shutdownCh:   make(chan struct{}),
 	}
 	go n.decodeResponses()
@@ -478,12 +478,12 @@ func (cp *commandPipeline) decodeResponses() {
 }
 
 // SendCommand is used to pipeline a new command requests.
-func (cp *commandPipeline) SendCommand(req *CommandRequest, resp *CommandResponse) (Promise, error) {
-	commandPromise := &CommandPromise{
+func (cp *commandPipeline) SendCommand(req *RecordEntriesRequest, resp *RecordEntriesResponse) (Promise, error) {
+	recordPromise := &RecordEntriesPromise{
 		req:  req,
 		resp: resp,
 	}
-	commandPromise.init()
+	recordPromise.init()
 
 	// Add a "send" timeout
 	if timeout := cp.trans.timeout; timeout > 0 {
@@ -491,15 +491,15 @@ func (cp *commandPipeline) SendCommand(req *CommandRequest, resp *CommandRespons
 	}
 
 	// Send the RPC
-	if err := sendRPC(cp.conn, commandPromise.req); err != nil {
+	if err := sendRPC(cp.conn, recordPromise.req); err != nil {
 		return nil, err
 	}
 
 	// Hand-off for decoding, this can also cause back-pressure
 	// to prevent too many inflight requests
 	select {
-	case cp.inprogressCh <- commandPromise:
-		return commandPromise, nil
+	case cp.inprogressCh <- recordPromise:
+		return recordPromise, nil
 	case <-cp.shutdownCh:
 		return nil, ErrPipelineShutdown
 	}
@@ -569,7 +569,7 @@ type StreamLayer interface {
 type CommandPipeline interface {
 	// SendCommand is used to add another request to the pipeline.
 	// To send may block which is an effective form of back-pressure.
-	SendCommand(req *CommandRequest, resp *CommandResponse) (Promise, error)
+	SendCommand(req *RecordEntriesRequest, resp *RecordEntriesResponse) (Promise, error)
 
 	// Consumer returns a channel that can be used to consume
 	// response futures when they are ready.

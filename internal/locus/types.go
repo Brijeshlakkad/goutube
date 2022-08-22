@@ -17,3 +17,12 @@ type Server struct {
 	// Address is its network address that a transport can contact.
 	Address ServerAddress
 }
+
+type Store interface {
+	AddPointEvent(pointId string, offset uint64) error
+	GetPointEvent(pointId string) (uint64, error)
+}
+
+type Bundler interface {
+	Build(header interface{}, key interface{}, value interface{}) ([]byte, error)
+}

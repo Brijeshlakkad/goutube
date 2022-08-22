@@ -84,34 +84,36 @@ func (p *Point) Append(b []byte) (n uint64, pos uint64, err error) {
 	}
 	w += lenWidth
 	p.size += uint64(w)
-	return uint64(w), pos, nil
+	return p.size, pos, nil
 }
 
-func (p *Point) Read(pos uint64) ([]byte, error) {
+func (p *Point) Read(pos uint64) (uint64, []byte, error) {
 	p.readWriteLock.Lock()
 	defer p.readWriteLock.Unlock()
 
 	if p.closed.Load().(bool) {
 		if err := p.Open(); err != nil {
-			return nil, err
+			return 0, nil, err
 		}
 	}
 
+	var nextOffset uint64
 	if err := p.buf.Flush(); err != nil {
-		return nil, err
+		return 0, nil, err
 	}
 	size := make([]byte, lenWidth)
 	if _, err := p.File.ReadAt(size, int64(pos)); err != nil {
-		return nil, err
+		return 0, nil, err
 	}
 	b := make([]byte, enc.Uint64(size))
 	if _, err := p.File.ReadAt(b, int64(pos+lenWidth)); err != nil {
-		return nil, err
+		return 0, nil, err
 	}
-	return b, nil
+	nextOffset = pos + uint64(lenWidth) + uint64(len(b))
+	return nextOffset, b, nil
 }
 
-func (p *Point) ReadAt(b []byte, off int64) (int, error) {
+func (p *Point) ReadAt(b []byte, off uint64) (int, error) {
 	p.readWriteLock.Lock()
 	defer p.readWriteLock.Unlock()
 
@@ -124,7 +126,7 @@ func (p *Point) ReadAt(b []byte, off int64) (int, error) {
 	if err := p.buf.Flush(); err != nil {
 		return 0, err
 	}
-	return p.File.ReadAt(b, off)
+	return p.File.ReadAt(b, int64(off))
 }
 
 func (p *Point) Close() error {

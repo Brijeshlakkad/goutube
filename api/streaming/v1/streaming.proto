@@ -10,8 +10,7 @@ service Streaming {
 }
 
 message ConsumeRequest {
-    string locus = 1;
-    string point = 2;
+    string point = 1;
 }
 
 message ConsumeResponse {
@@ -19,11 +18,15 @@ message ConsumeResponse {
 }
 
 message ProduceRequest {
-    string locus = 1;
-    string point = 2;
+    string point = 1;
     bytes frame = 3;
 }
 
 message ProduceResponse {
-    uint64 offset = 1;
+    repeated Record records = 1;
+}
+
+message Record {
+    string point = 1;
+    uint64 offset = 2;
 }

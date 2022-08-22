@@ -5,141 +5,157 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
-	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
 	streaming_api "github.com/Brijeshlakkad/goutube/api/streaming/v1"
+	"github.com/Brijeshlakkad/goutube/internal/locus/pointcron"
+	"github.com/hashicorp/go-hclog"
 
 	"google.golang.org/protobuf/proto"
 )
 
 type DistributedLoci struct {
 	config Config
-	loci   *LociManager
+	locus  *Locus
+	store  Store
+	logger hclog.Logger
 
 	arc *Arc
 
 	mu sync.Mutex
+
+	bundler *RequestBundler
 }
 
 func NewDistributedLoci(dataDir string, config Config) (
 	*DistributedLoci,
 	error,
 ) {
-	d := &DistributedLoci{
-		config: config,
+	if config.Distributed.Logger == nil {
+		config.Distributed.Logger = hclog.New(&hclog.LoggerOptions{
+			Name:   "distributed-loci",
+			Output: hclog.DefaultOutput,
+			Level:  hclog.DefaultLevel,
+		})
 	}
-	if err := d.setupLociManager(dataDir); err != nil {
+	d := &DistributedLoci{
+		config:  config,
+		bundler: &RequestBundler{},
+	}
+	var err error
+
+	if err = d.setupLociManager(dataDir); err != nil {
 		return nil, err
 	}
+	if err = d.setupStore(dataDir); err != nil {
+		return nil, err
+	}
+
 	arcConfig := ArcConfig{
 		StreamLayer: config.Distributed.StreamLayer,
-		fsm:         &fsm{d.loci},
+		fsm: &fsm{
+			locus: d.locus,
+		},
+		store:     d.store,
+		Bundler:   d.bundler,
+		Bootstrap: config.Distributed.Bootstrap,
 	}
-	d.arc = NewArc(arcConfig)
+	d.arc, err = NewArc(arcConfig)
+	if err != nil {
+		return nil, err
+	}
 	return d, nil
 }
 
 func (d *DistributedLoci) setupLociManager(dataDir string) error {
-	lociDir := filepath.Join(dataDir, "loci")
-	// Create a hierarchy of directories if necessary
-	if err := os.MkdirAll(lociDir, 0755); err != nil {
+	lociDir, err := createDirectory(dataDir, "locus")
+	if err != nil {
 		return err
 	}
-	var err error
-	d.loci, err = NewLociManager(lociDir, d.config)
+	d.config.Point.pointScheduler = pointcron.NewPointScheduler(pointcron.Config{
+		CloseTimeout: d.config.Point.CloseTimeout,
+		TickTime:     d.config.Point.TickTime,
+	})
+	d.config.Point.pointScheduler.StartAsync()
+
+	d.locus, err = NewLocus(lociDir, d.config)
 	return err
 }
 
-func (d *DistributedLoci) GetLoci() []string {
-	return d.loci.GetLoci()
+func (d *DistributedLoci) setupStore(dataDir string) (err error) {
+	logDir, err := createDirectory(dataDir, "log")
+	if err != nil {
+		return err
+	}
+	d.store, err = NewInMomoryPointStore(logDir)
+	return err
 }
 
-func (d *DistributedLoci) GetPoints(locusId string) []string {
-	return d.loci.GetPoints(locusId)
+func (d *DistributedLoci) GetPoints() []string {
+	return d.locus.GetPoints()
 }
 
-func (d *DistributedLoci) Append(locusId string, pointId string, b []byte) (pos uint64, err error) {
+func (d *DistributedLoci) Append(record *streaming_api.ProduceRequest) (pos uint64, err error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	apply, err := d.apply(AppendRequestType, &streaming_api.ProduceRequest{Locus: locusId, Point: pointId, Frame: b})
+	apply, err := d.apply(AppendRequestType, record.Point, record.Frame)
 	if err != nil {
 		return 0, err
 	}
-	return apply.(*streaming_api.ProduceResponse).Offset, nil
+	records := apply.(*streaming_api.ProduceResponse).Records
+	if len(records) > 0 {
+		return apply.(*streaming_api.ProduceResponse).Records[0].Offset, nil
+	}
+	return 0, nil
 }
 
-func (d *DistributedLoci) apply(reqType RequestType, req proto.Message) (
+func (d *DistributedLoci) apply(reqType RequestType, key interface{}, value interface{}) (
 	interface{},
 	error,
 ) {
-	var buf bytes.Buffer
-	_, err := buf.Write([]byte{byte(reqType)})
-	if err != nil {
-		return nil, err
-	}
-	b, err := proto.Marshal(req)
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = buf.Write(b)
+	b, err := d.bundler.Build(reqType, key, value)
 	if err != nil {
 		return nil, err
 	}
 	timeout := 10 * time.Second
-	commandPromise := d.arc.Apply(buf.Bytes(), timeout)
+	commandPromise := d.arc.Apply(b, timeout)
 	if err := commandPromise.Error(); err != nil {
 		return nil, err
 	}
-	res := commandPromise.Response().(*CommandResponse)
+	res := commandPromise.Response().(*RecordResponse)
 	return res.Response, nil
 }
 
-func (d *DistributedLoci) Read(locusId string, pointId string, pos uint64) ([]byte, error) {
-	return d.loci.Read(locusId, pointId, pos)
+func (d *DistributedLoci) Read(pointId string, pos uint64) ([]byte, error) {
+	_, b, err := d.locus.Read(pointId, pos)
+	return b, err
 }
 
-func (d *DistributedLoci) ReadAt(locusId string, pointId string, b []byte, off int64) (int, error) {
-	return d.loci.ReadAt(locusId, pointId, b, off)
+func (d *DistributedLoci) ReadAt(pointId string, b []byte, off uint64) (int, error) {
+	return d.locus.ReadAt(pointId, b, off)
 }
 
-func (d *DistributedLoci) Close(locusId string) error {
+func (d *DistributedLoci) ClosePoint(pointId string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	return d.loci.Close(locusId)
+	return d.locus.Close(pointId)
 }
 
-func (d *DistributedLoci) ClosePoint(locusId string, pointId string) error {
+func (d *DistributedLoci) Close() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	return d.loci.ClosePoint(locusId, pointId)
+	return d.locus.CloseAll()
 }
 
-func (d *DistributedLoci) CloseAll() error {
+func (d *DistributedLoci) Remove() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	return d.loci.CloseAll()
-}
-
-func (d *DistributedLoci) Remove(locusId string) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	return d.loci.Remove(locusId)
-}
-
-func (d *DistributedLoci) RemoveAll() error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	return d.loci.RemoveAll()
+	return d.locus.RemoveAll()
 }
 
 func (d *DistributedLoci) Join(rpcAddr string, vNodeCount int) error {
@@ -217,29 +233,67 @@ func (s *LocusStreamLayer) Addr() net.Addr {
 var _ FSM = (*fsm)(nil)
 
 type fsm struct {
-	loci *LociManager
+	locus *Locus
 }
 
 // Apply Invokes this method after committing a log entry.
-func (l *fsm) Apply(record *CommandRequest) interface{} {
+func (f *fsm) Apply(record *RecordRequest) *FSMRecordResponse {
 	buf := record.Data
 	reqType := RequestType(buf[0])
 	switch reqType {
 	case AppendRequestType:
-		return l.applyAppend(buf[1:])
+		return f.applyAppend(buf[1:])
 	}
 	return nil
 }
 
-func (l *fsm) applyAppend(b []byte) interface{} {
+func (f *fsm) applyAppend(b []byte) *FSMRecordResponse {
 	var req streaming_api.ProduceRequest
 	err := proto.Unmarshal(b, &req)
 	if err != nil {
-		return err
+		return &FSMRecordResponse{Response: err}
 	}
-	offset, err := l.loci.Append(req.GetLocus(), req.Point, req.GetFrame())
+	nextOffset, offset, err := f.locus.Append(req.GetPoint(), req.GetFrame())
 	if err != nil {
-		return err
+		return &FSMRecordResponse{Response: err}
 	}
-	return &streaming_api.ProduceResponse{Offset: offset}
+	return &FSMRecordResponse{
+		StoreKey:   req.Point,
+		StoreValue: nextOffset,
+		Response: &streaming_api.ProduceResponse{Records: []*streaming_api.Record{
+			{
+				Point:  req.Point,
+				Offset: offset,
+			},
+		}},
+	}
+}
+
+func (f *fsm) Read(key string, offset uint64) (uint64, []byte, error) {
+	return f.locus.Read(key, offset)
+}
+
+type RequestBundler struct {
+}
+
+func (rb *RequestBundler) Build(header interface{}, key interface{}, value interface{}) (
+	[]byte,
+	error,
+) {
+	req := &streaming_api.ProduceRequest{Point: key.(string), Frame: value.([]byte)}
+	var buf bytes.Buffer
+	_, err := buf.Write([]byte{byte(header.(RequestType))})
+	if err != nil {
+		return nil, err
+	}
+	b, err := proto.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = buf.Write(b)
+	if err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
