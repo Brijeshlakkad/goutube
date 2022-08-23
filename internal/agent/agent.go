@@ -23,7 +23,7 @@ type Agent struct {
 	mux        cmux.CMux
 	loci       *locus.DistributedLoci
 	server     *grpc.Server
-	membership *ring.Member
+	membership *ring.Ring
 
 	shutdown     bool
 	shutdowns    chan struct{}
@@ -157,7 +157,7 @@ func (a *Agent) setupServer() error {
 
 func (a *Agent) setupMembership() error {
 	var err error
-	a.membership, err = ring.NewMember(ring.Config{
+	a.membership, err = ring.NewRing(ring.Config{
 		NodeName:         a.Config.NodeName,
 		BindAddr:         a.Config.BindAddr,
 		RPCPort:          a.RPCPort,
