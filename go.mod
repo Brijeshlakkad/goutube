@@ -27,7 +27,7 @@ require (
 	github.com/tysonmote/gommap v0.0.2
 	github.com/umpc/go-sortedmap v0.0.0-20180422175548-64ab94c482f4 // indirect
 	go.opencensus.io v0.23.0
-	go.uber.org/atomic v1.10.0 // indirect
+	go.uber.org/atomic v1.7.0 // indirect
 	go.uber.org/multierr v1.8.0 // indirect
 	golang.org/x/net v0.0.0-20220822230855-b0a4917ee28c // indirect
 	golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4
