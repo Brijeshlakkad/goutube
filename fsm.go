@@ -33,8 +33,10 @@ func (arc *Arc) runFSM() {
 		case cp = <-arc.applyCh:
 			key := applySingle(cp)
 
+			arc.replicateStateLock.Lock()
 			// Async notifying replicas.
 			arc.notifyFollowers(key)
+			arc.replicateStateLock.Unlock()
 		case <-arc.shutdownCh:
 			return
 		}
