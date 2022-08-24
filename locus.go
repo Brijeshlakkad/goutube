@@ -42,9 +42,6 @@ func (l *Locus) setup() error {
 }
 
 func (l *Locus) addPoint(pointId string) (*Point, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
 	p, err := l.get(pointId)
 	if err != nil {
 		_, ok := err.(streaming_api.PointNotFound)
@@ -53,11 +50,11 @@ func (l *Locus) addPoint(pointId string) (*Point, error) {
 			if err != nil {
 				return nil, err
 			}
-
 			l.points[p.pointId] = p
-		} else {
-			return nil, err
+
+			return p, nil
 		}
+		return nil, err
 	}
 	return p, nil
 }
@@ -80,11 +77,12 @@ func (l *Locus) get(pointId string) (*Point, error) {
 }
 
 func (l *Locus) Append(pointId string, b []byte) (n uint64, pos uint64, err error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
 	point, err := l.get(pointId)
 	if _, ok := err.(streaming_api.PointNotFound); ok {
 		point, err = l.addPoint(pointId)
-
-		l.points[point.pointId] = point
 	}
 	defer l.Config.Point.pointScheduler.Enqueue(point)
 
@@ -92,6 +90,9 @@ func (l *Locus) Append(pointId string, b []byte) (n uint64, pos uint64, err erro
 }
 
 func (l *Locus) Read(pointId string, pos uint64) (uint64, []byte, error) {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
 	point, err := l.get(pointId)
 	if err != nil {
 		return 0, nil, err
@@ -102,6 +103,9 @@ func (l *Locus) Read(pointId string, pos uint64) (uint64, []byte, error) {
 }
 
 func (l *Locus) ReadAt(pointId string, b []byte, off uint64) (int, error) {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
 	point, err := l.get(pointId)
 	if err != nil {
 		return 0, err
@@ -112,9 +116,6 @@ func (l *Locus) ReadAt(pointId string, b []byte, off uint64) (int, error) {
 }
 
 func (l *Locus) Close(pointId string) error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
 	p, err := l.get(pointId)
 	if err != nil {
 		return err
@@ -123,9 +124,6 @@ func (l *Locus) Close(pointId string) error {
 }
 
 func (l *Locus) CloseAll() error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
 	for _, point := range l.points {
 		if err := point.Close(); err != nil {
 			return err

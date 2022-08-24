@@ -15,29 +15,26 @@ const (
 )
 
 type Point struct {
-	File          *os.File
-	pointId       string
-	pointDir      string
-	readWriteLock *sync.Mutex
-	buf           *bufio.Writer
-	size          uint64
+	File      *os.File
+	pointId   string
+	pointDir  string
+	pointLock sync.Mutex
+	buf       *bufio.Writer
+	size      uint64
 
 	closed atomic.Value
 	close  chan string
 
 	lastAccessed time.Time
-	accessLock   *sync.Mutex
+	accessLock   sync.Mutex
 }
 
 func newPoint(locusId string, relativePointId string) (*Point, error) {
 	p := new(Point)
 	p.pointId = relativePointId
-	p.readWriteLock = new(sync.Mutex)
 	p.pointDir = createPointId(locusId, relativePointId)
 	p.closed.Store(true)
 	p.close = make(chan string)
-	p.accessLock = new(sync.Mutex)
-
 	return p, nil
 }
 
@@ -60,8 +57,8 @@ func (p *Point) Open() error {
 }
 
 func (p *Point) Append(b []byte) (n uint64, pos uint64, err error) {
-	p.readWriteLock.Lock()
-	defer p.readWriteLock.Unlock()
+	p.pointLock.Lock()
+	defer p.pointLock.Unlock()
 
 	if p.closed.Load().(bool) {
 		if err := p.Open(); err != nil {
@@ -84,8 +81,8 @@ func (p *Point) Append(b []byte) (n uint64, pos uint64, err error) {
 }
 
 func (p *Point) Read(pos uint64) (uint64, []byte, error) {
-	p.readWriteLock.Lock()
-	defer p.readWriteLock.Unlock()
+	p.pointLock.Lock()
+	defer p.pointLock.Unlock()
 
 	if p.closed.Load().(bool) {
 		if err := p.Open(); err != nil {
@@ -110,8 +107,8 @@ func (p *Point) Read(pos uint64) (uint64, []byte, error) {
 }
 
 func (p *Point) ReadAt(b []byte, off uint64) (int, error) {
-	p.readWriteLock.Lock()
-	defer p.readWriteLock.Unlock()
+	p.pointLock.Lock()
+	defer p.pointLock.Unlock()
 
 	if p.closed.Load().(bool) {
 		if err := p.Open(); err != nil {
@@ -126,8 +123,8 @@ func (p *Point) ReadAt(b []byte, off uint64) (int, error) {
 }
 
 func (p *Point) Close() error {
-	p.readWriteLock.Lock()
-	defer p.readWriteLock.Unlock()
+	p.pointLock.Lock()
+	defer p.pointLock.Unlock()
 
 	if p.closed.Load().(bool) {
 		return nil
