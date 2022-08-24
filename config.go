@@ -10,11 +10,10 @@ import (
 type Config struct {
 	Distributed struct {
 		LocalID      string
-		Bootstrap    bool
-		BindAdr      string
 		StreamLayer  *LocusStreamLayer
 		StoreAddress string
 		Logger       hclog.Logger
+		Rule         ParticipationRule
 	}
 	Point struct {
 		TickTime       time.Duration

@@ -14,6 +14,7 @@ require (
 	github.com/hashicorp/go-msgpack v1.1.5
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/hashicorp/go-sockaddr v1.0.2 // indirect
+	github.com/hashicorp/serf v0.10.0
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/miekg/dns v1.1.50 // indirect
 	github.com/onsi/ginkgo v1.16.5 // indirect
@@ -27,6 +28,7 @@ require (
 	github.com/tysonmote/gommap v0.0.2
 	go.opencensus.io v0.23.0
 	go.uber.org/multierr v1.8.0 // indirect
+	go.uber.org/zap v1.22.0
 	golang.org/x/net v0.0.0-20220822230855-b0a4917ee28c // indirect
 	golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4
 	golang.org/x/sys v0.0.0-20220818161305-2296e01440c6 // indirect

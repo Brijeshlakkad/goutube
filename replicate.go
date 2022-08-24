@@ -56,14 +56,14 @@ func (arc *Arc) appendEntries(s *Follower, key string, nextOffset uint64) {
 	var err error
 	pipeline, err := arc.transport.PrepareCommandTransport(peer.Address)
 	if err != nil {
-		arc.logger.Error("failed to pipeline appendEntries", "peer", s.peer, "error", err)
+		arc.Logger.Error("failed to pipeline appendEntries", "peer", s.peer, "error", err)
 		return
 	}
 	// Pipeline the append entries
 	lastOffset, err := arc.store.GetPointEvent(key)
 
 	if err != nil {
-		arc.logger.Error("Error while synchronizing the followers", "error", err)
+		arc.Logger.Error("Error while synchronizing the followers", "error", err)
 	}
 	var entries []*RecordRequest
 	for nextOffset <= lastOffset {
@@ -75,9 +75,9 @@ func (arc *Arc) appendEntries(s *Follower, key string, nextOffset uint64) {
 		}
 		if len(chunk) > 0 {
 			nextOffset = tempNextOffset
-			data, err := arc.bundler.Build(AppendRequestType, key, chunk)
+			data, err := arc.Bundler.Build(AppendRequestType, key, chunk)
 			if err != nil {
-				arc.logger.Error("failed to build request", "peer", s.peer, "error", err)
+				arc.Logger.Error("failed to build request", "peer", s.peer, "error", err)
 				return
 			}
 			entries = append(entries, &RecordRequest{
@@ -94,7 +94,7 @@ func (arc *Arc) appendEntries(s *Follower, key string, nextOffset uint64) {
 		out := new(RecordEntriesResponse)
 		_, err = pipeline.SendCommand(req, out)
 		if err != nil {
-			arc.logger.Error("failed to pipeline commands", "peer", s.peer, "error", err)
+			arc.Logger.Error("failed to pipeline commands", "peer", s.peer, "error", err)
 			return
 		}
 
@@ -104,7 +104,7 @@ func (arc *Arc) appendEntries(s *Follower, key string, nextOffset uint64) {
 		case promise := <-respCh:
 			err = promise.Error()
 			if err != nil {
-				arc.logger.Error("server couldn't handle the command", "peer", s.peer, "error", err)
+				arc.Logger.Error("server couldn't handle the command", "peer", s.peer, "error", err)
 				return
 			}
 

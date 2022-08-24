@@ -57,9 +57,8 @@ func NewDistributedLoci(dataDir string, config Config) (
 		fsm: &fsm{
 			locus: d.locus,
 		},
-		store:     d.store,
-		Bundler:   d.bundler,
-		Bootstrap: config.Distributed.Bootstrap,
+		store:   d.store,
+		Bundler: d.bundler,
 	}
 	d.arc, err = NewArc(arcConfig)
 	if err != nil {
@@ -144,10 +143,18 @@ func (d *DistributedLoci) ClosePoint(pointId string) error {
 	return d.locus.Close(pointId)
 }
 
-func (d *DistributedLoci) Close() error {
+func (d *DistributedLoci) Shutdown() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
+	promise := d.arc.Shutdown()
+	if err := promise.Error(); err != nil {
+		return err
+	}
+	res := promise.Response()
+	if err, ok := res.(error); ok {
+		return err
+	}
 	return d.locus.CloseAll()
 }
 
@@ -158,12 +165,20 @@ func (d *DistributedLoci) Remove() error {
 	return d.locus.RemoveAll()
 }
 
-func (d *DistributedLoci) Join(rpcAddr string, vNodeCount int) error {
-	return d.arc.join(rpcAddr, vNodeCount)
+func (d *DistributedLoci) Join(rpcAddr string, rule ParticipationRule) error {
+	if d.canArcJoin(rule) {
+		return d.arc.join(rpcAddr)
+	}
+	return nil
 }
 
 func (d *DistributedLoci) Leave(rpcAddr string) error {
 	return d.arc.leave(rpcAddr)
+}
+
+func (d *DistributedLoci) canArcJoin(rule ParticipationRule) bool {
+	return (d.config.Distributed.Rule == LeaderRule || d.config.Distributed.Rule == LeaderFollowerRule) &&
+		(rule == FollowerRule || rule == LeaderFollowerRule)
 }
 
 type LocusStreamLayer struct {

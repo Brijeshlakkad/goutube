@@ -77,7 +77,6 @@ func setupTest(t *testing.T, fn func()) (
 		nil,
 		nil,
 	)
-	locusConfig.Distributed.BindAdr = "localhost:0"
 	locusInstance, err := NewDistributedLoci(dir, locusConfig)
 	require.NoError(t, err)
 
