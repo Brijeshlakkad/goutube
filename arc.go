@@ -24,19 +24,9 @@ var (
 )
 
 type Arc struct {
+	ArcConfig
 	arcState
-
-	fsm FSM
-	// Dialer
-	StreamLayer StreamLayer
-	logger      hclog.Logger
-	// Timeout is used to apply I/O deadlines. For InstallSnapshot, we multiply
-	// the timeout by (SnapshotSize / TimeoutScale).
-	Timeout      time.Duration
-	store        Store
-	MaxChunkSize uint64
-	transport    *Transport
-
+	transport *Transport
 	// Shutdown channel to exit, protected to prevent concurrent exits
 	shutdown           bool
 	shutdownCh         chan struct{}
@@ -45,8 +35,6 @@ type Arc struct {
 	rpcCh              <-chan RPC
 	replicateStateLock sync.Mutex
 	Dir                string
-	bundler            Bundler
-	bootStrap          bool
 }
 
 type ArcConfig struct {
@@ -63,8 +51,6 @@ type ArcConfig struct {
 	MaxChunkSize uint64
 
 	Bundler Bundler
-
-	Bootstrap bool
 }
 
 func NewArc(config ArcConfig) (*Arc, error) {
@@ -92,21 +78,14 @@ func NewArc(config ArcConfig) (*Arc, error) {
 		},
 	)
 	arc := &Arc{
-		transport:    transport,
-		rpcCh:        transport.Consumer(),
-		fsm:          config.fsm,
-		StreamLayer:  config.StreamLayer,
-		logger:       config.Logger,
-		Timeout:      config.Timeout,
-		store:        config.store,
-		MaxChunkSize: config.MaxChunkSize,
-		shutdownCh:   make(chan struct{}),
-		applyCh:      make(chan *RecordPromise),
+		ArcConfig:  config,
+		transport:  transport,
+		rpcCh:      transport.Consumer(),
+		shutdownCh: make(chan struct{}),
+		applyCh:    make(chan *RecordPromise),
 		arcState: arcState{
 			replicateState: make(map[string]*Follower),
 		},
-		bundler:   config.Bundler,
-		bootStrap: config.Bootstrap,
 	}
 
 	go arc.runFSM()
@@ -171,7 +150,7 @@ func (arc *Arc) Apply(data []byte, timeout time.Duration) *RecordPromise {
 	}
 }
 
-func (arc *Arc) join(rpcAddr string, vNodeCount int) error {
+func (arc *Arc) join(rpcAddr string) error {
 	arc.replicateStateLock.Lock()
 	defer arc.replicateStateLock.Unlock()
 
@@ -182,9 +161,7 @@ func (arc *Arc) join(rpcAddr string, vNodeCount int) error {
 
 	arc.replicateState[rpcAddr] = s
 
-	if arc.bootStrap {
-		go arc.replicate(s)
-	}
+	go arc.replicate(s)
 
 	return nil
 }
@@ -198,23 +175,6 @@ func (arc *Arc) leave(rpcAddr string) error {
 		delete(arc.replicateState, rpcAddr)
 	}
 	return nil
-}
-
-// Shutdown is used to stop the Raft background routines.
-// This is not a graceful operation. Provides a future that
-// can be used to block until all background routines have exited.
-func (arc *Arc) Shutdown() Promise {
-	arc.shutdownLock.Lock()
-	defer arc.shutdownLock.Unlock()
-
-	if !arc.shutdown {
-		close(arc.shutdownCh)
-		arc.shutdown = true
-		return &shutdownPromise{arc}
-	}
-
-	// avoid closing transport twice
-	return &shutdownPromise{nil}
 }
 
 type arcState struct {
@@ -238,6 +198,23 @@ func (r *arcState) goFunc(f func()) {
 		defer r.routinesGroup.Done()
 		f()
 	}()
+}
+
+// Shutdown is used to stop the Arc background routines.
+// This is not a graceful operation. Provides a future that
+// can be used to block until all background routines have exited.
+func (arc *Arc) Shutdown() Promise {
+	arc.shutdownLock.Lock()
+	defer arc.shutdownLock.Unlock()
+
+	if !arc.shutdown {
+		close(arc.shutdownCh)
+		arc.shutdown = true
+		return &shutdownPromise{arc}
+	}
+
+	// avoid closing transport twice
+	return &shutdownPromise{nil}
 }
 
 func (r *arcState) waitShutdown() {

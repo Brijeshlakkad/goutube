@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
 	"sync"
 
 	"github.com/Brijeshlakkad/ring"
@@ -17,10 +18,11 @@ import (
 type Agent struct {
 	AgentConfig
 
-	mux        cmux.CMux
-	loci       *DistributedLoci
-	server     *grpc.Server
-	membership *ring.Ring
+	mux                cmux.CMux
+	loci               *DistributedLoci
+	server             *grpc.Server
+	ring               *ring.Ring
+	replicationCluster *replicationCluster
 
 	shutdown     bool
 	shutdowns    chan struct{}
@@ -31,15 +33,18 @@ type AgentConfig struct {
 	DataDir          string
 	BindAddr         string
 	RPCPort          int
+	ReplicationPort  int
 	NodeName         string
 	SeedAddresses    []string
-	Bootstrap        bool
 	VirtualNodeCount int
 
 	ACLModelFile    string
 	ACLPolicyFile   string
 	ServerTLSConfig *tls.Config // Served to clients.
 	PeerTLSConfig   *tls.Config // Servers so they can connect with and replicate each other.
+
+	LeaderAddresses []string          // Addresses of the servers which will set this server as one of its followers (for replication).
+	Rule            ParticipationRule // True, if this server takes part in the ring (peer-to-peer architecture) and/or replication.
 }
 
 func (c AgentConfig) RPCAddr() (string, error) {
@@ -50,6 +55,14 @@ func (c AgentConfig) RPCAddr() (string, error) {
 	return fmt.Sprintf("%s:%d", host, c.RPCPort), nil
 }
 
+func (c AgentConfig) ReplicationRPCAddr() (string, error) {
+	host, _, err := net.SplitHostPort(c.BindAddr)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s:%d", host, c.ReplicationPort), nil
+}
+
 func NewAgent(config AgentConfig) (*Agent, error) {
 	a := &Agent{
 		AgentConfig: config,
@@ -57,10 +70,11 @@ func NewAgent(config AgentConfig) (*Agent, error) {
 	}
 	setup := []func() error{
 		a.setupMux,
-		a.setupMembership,
+		a.setupRing,
 		a.setupLoci,
+		a.setupReplicationCluster,
 		a.setupServer,
-	}
+	} // Order of the function call matters.
 	for _, fn := range setup {
 		if err := fn(); err != nil {
 			return nil, err
@@ -101,10 +115,6 @@ func (a *Agent) setupLoci() error {
 		}
 		return bytes.Compare(b, []byte{byte(RingRPC)}) == 0
 	})
-	rpcAddr, err := a.RPCAddr()
-	if err != nil {
-		return err
-	}
 
 	lociConfig := Config{}
 	lociConfig.Distributed.StreamLayer = NewStreamLayer(
@@ -112,12 +122,11 @@ func (a *Agent) setupLoci() error {
 		a.ServerTLSConfig,
 		a.PeerTLSConfig,
 	)
-	lociConfig.Distributed.BindAdr = rpcAddr
 	lociConfig.Distributed.LocalID = a.NodeName
-	lociConfig.Distributed.Bootstrap = a.Bootstrap
-	a.loci, err = NewDistributedLoci(a.DataDir, lociConfig)
+	lociConfig.Distributed.Rule = a.Rule
 
-	a.membership.AddListener("locimanager", a.loci)
+	var err error
+	a.loci, err = NewDistributedLoci(a.DataDir, lociConfig)
 
 	return err
 }
@@ -152,16 +161,43 @@ func (a *Agent) setupServer() error {
 	return err
 }
 
-func (a *Agent) setupMembership() error {
-	var err error
-	a.membership, err = ring.NewRing(ring.Config{
-		NodeName:         a.NodeName,
-		BindAddr:         a.BindAddr,
-		RPCPort:          a.RPCPort,
-		VirtualNodeCount: a.VirtualNodeCount,
-		SeedAddresses:    a.SeedAddresses,
-	})
-	return err
+func (a *Agent) setupRing() error {
+	if a.Rule == StandaloneLeaderRule || a.Rule == LeaderRule || a.Rule == LeaderFollowerRule {
+		var err error
+		a.ring, err = ring.NewRing(ring.Config{
+			NodeName:         fmt.Sprintf("replication-%s", a.NodeName),
+			BindAddr:         a.BindAddr,
+			RPCPort:          a.RPCPort,
+			VirtualNodeCount: a.VirtualNodeCount,
+			SeedAddresses:    a.SeedAddresses,
+		})
+		return err
+	}
+	return nil
+}
+
+func (a *Agent) setupReplicationCluster() error {
+	if a.Rule == LeaderRule || a.Rule == FollowerRule || a.Rule == LeaderFollowerRule {
+		rpcAddr, err := a.RPCAddr()
+		if err != nil {
+			return err
+		}
+		replicationBindAdrr, err := a.ReplicationRPCAddr()
+		if err != nil {
+			return err
+		}
+		a.replicationCluster, err = newReplicationCluster(a.loci, ReplicationClusterConfig{
+			NodeName:      a.NodeName,
+			BindAddr:      replicationBindAdrr,
+			SeedAddresses: a.LeaderAddresses,
+			Tags: map[string]string{
+				"rpc_addr": rpcAddr,
+				"rule":     strconv.Itoa(int(a.Rule)),
+			},
+		})
+		return err
+	}
+	return nil
 }
 
 func (a *Agent) Shutdown() error {
@@ -173,14 +209,21 @@ func (a *Agent) Shutdown() error {
 	a.shutdown = true
 	close(a.shutdowns)
 
-	shutdown := []func() error{
-		a.membership.Shutdown,
+	var shutdown []func() error
+	if a.ring != nil {
+		shutdown = append(shutdown, a.ring.Shutdown)
+	}
+	if a.replicationCluster != nil {
+		shutdown = append(shutdown, a.replicationCluster.Leave)
+	}
+	shutdown = append(
+		shutdown,
 		func() error {
 			a.server.GracefulStop()
 			return nil
 		},
-		a.loci.Close,
-	}
+		a.loci.Shutdown,
+	)
 	for _, fn := range shutdown {
 		if err := fn(); err != nil {
 			return err

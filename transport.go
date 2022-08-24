@@ -132,7 +132,7 @@ func (transport *Transport) CloseStreams() {
 	transport.connPoolLock.Lock()
 	defer transport.connPoolLock.Unlock()
 
-	// Close all the connections in the connection pool and then remove their
+	// Shutdown all the connections in the connection pool and then remove their
 	// entry.
 	for k, e := range transport.connPool {
 		for _, conn := range e {

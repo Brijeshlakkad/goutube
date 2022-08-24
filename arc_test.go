@@ -42,7 +42,6 @@ func TestArc_FSM(t *testing.T) {
 		fsm:         fsm,
 		store:       logStore,
 		Bundler:     &RequestBundler{},
-		Bootstrap:   false,
 	})
 	require.NoError(t, err)
 
@@ -94,7 +93,6 @@ func TestArc_Followers(t *testing.T) {
 		fsm:         fsm_leader,
 		store:       logStore_Leader,
 		Bundler:     &RequestBundler{},
-		Bootstrap:   true,
 	})
 	require.NoError(t, err)
 
@@ -125,7 +123,6 @@ func TestArc_Followers(t *testing.T) {
 		fsm:         fsm_Follower,
 		store:       logStore_Follower,
 		Bundler:     &RequestBundler{},
-		Bootstrap:   false,
 	})
 	require.NoError(t, err)
 
