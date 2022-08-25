@@ -1,6 +1,7 @@
 package goutube
 
 import (
+	"encoding/json"
 	"errors"
 	"sync"
 	"time"
@@ -25,7 +26,7 @@ var (
 
 type Arc struct {
 	ArcConfig
-	arcState
+	*arcState
 	transport *Transport
 	// Shutdown channel to exit, protected to prevent concurrent exits
 	shutdown           bool
@@ -35,6 +36,7 @@ type Arc struct {
 	rpcCh              <-chan RPC
 	replicateStateLock sync.Mutex
 	Dir                string
+	logger             hclog.Logger
 }
 
 type ArcConfig struct {
@@ -54,8 +56,9 @@ type ArcConfig struct {
 }
 
 func NewArc(config ArcConfig) (*Arc, error) {
-	if config.Logger == nil {
-		config.Logger = hclog.New(&hclog.LoggerOptions{
+	logger := config.Logger
+	if logger == nil {
+		logger = hclog.New(&hclog.LoggerOptions{
 			Name:   "goutube-arc",
 			Output: hclog.DefaultOutput,
 			Level:  hclog.DefaultLevel,
@@ -73,7 +76,7 @@ func NewArc(config ArcConfig) (*Arc, error) {
 	transport := NewTransportWithConfig(
 		&TransportConfig{
 			Stream:  config.StreamLayer,
-			Logger:  config.Logger,
+			Logger:  logger,
 			Timeout: config.Timeout,
 		},
 	)
@@ -83,9 +86,10 @@ func NewArc(config ArcConfig) (*Arc, error) {
 		rpcCh:      transport.Consumer(),
 		shutdownCh: make(chan struct{}),
 		applyCh:    make(chan *RecordPromise),
-		arcState: arcState{
+		arcState: &arcState{
 			replicateState: make(map[string]*Follower),
 		},
+		logger: logger,
 	}
 
 	go arc.runFSM()
@@ -120,7 +124,30 @@ func (arc *Arc) processRPC(rpc RPC) {
 		resp := arc.fsm.Apply(req)
 		nextOffset = resp.StoreValue.(uint64)
 		rpc.Respond(&RecordResponse{LastOff: nextOffset}, nil)
+	case *GetServersRequest:
+		b, err := json.Marshal(arc.GetFollowers())
+		if err != nil {
+			rpc.Respond(nil, err)
+		}
+		rpc.Respond(&GetServersResponse{Response: b}, nil)
 	}
+}
+
+func (arc *Arc) getPeerFollowers(target ServerAddress) ([]Server, error) {
+	var out GetServersResponse
+	if err := arc.transport.SendGetServersRequest(target, &GetServersRequest{}, &out); err != nil {
+		arc.logger.Error("Server couldn't handle GetFollowers request", "peer", target, "error", err)
+		return []Server{}, err
+	}
+	if out.Response == nil {
+		return []Server{}, nil
+	}
+
+	var servers []Server
+	if err := json.Unmarshal(out.Response.([]byte), &servers); err != nil {
+		return []Server{}, err
+	}
+	return servers, nil
 }
 
 func (arc *Arc) Apply(data []byte, timeout time.Duration) *RecordPromise {
@@ -177,29 +204,6 @@ func (arc *Arc) leave(rpcAddr string) error {
 	return nil
 }
 
-type arcState struct {
-	replicateState map[string]*Follower
-
-	// Tracks running goroutines
-	routinesGroup sync.WaitGroup
-
-	// protects 4 next fields
-	lastLock sync.Mutex
-
-	// Cache the latest log
-	lastLogIndex uint64
-}
-
-// Start a goroutine and properly handle the race between a routine
-// starting and incrementing, and exiting and decrementing.
-func (r *arcState) goFunc(f func()) {
-	r.routinesGroup.Add(1)
-	go func() {
-		defer r.routinesGroup.Done()
-		f()
-	}()
-}
-
 // Shutdown is used to stop the Arc background routines.
 // This is not a graceful operation. Provides a future that
 // can be used to block until all background routines have exited.
@@ -217,19 +221,32 @@ func (arc *Arc) Shutdown() Promise {
 	return &shutdownPromise{nil}
 }
 
-func (r *arcState) waitShutdown() {
-	r.routinesGroup.Wait()
+type arcState struct {
+	replicateState map[string]*Follower
+
+	// Tracks running goroutines
+	routinesGroup sync.WaitGroup
 }
 
-func (r *arcState) setLastLog(index uint64) {
-	r.lastLock.Lock()
-	r.lastLogIndex = index
-	r.lastLock.Unlock()
+// Start a goroutine and properly handle the race between a routine
+// starting and incrementing, and exiting and decrementing.
+func (state *arcState) goFunc(f func()) {
+	state.routinesGroup.Add(1)
+	go func() {
+		defer state.routinesGroup.Done()
+		f()
+	}()
 }
 
-func (r *arcState) getLastLog() (index uint64) {
-	r.lastLock.Lock()
-	index = r.lastLogIndex
-	r.lastLock.Unlock()
-	return
+func (state *arcState) waitShutdown() {
+	state.routinesGroup.Wait()
+}
+
+// GetFollowers gets the addresses of its followers.
+func (state *arcState) GetFollowers() []Server {
+	var servers []Server
+	for _, server := range state.replicateState {
+		servers = append(servers, server.peer)
+	}
+	return servers
 }

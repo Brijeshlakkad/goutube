@@ -21,24 +21,47 @@ var (
 	lines   = 10
 )
 
-func TestServer(t *testing.T) {
-	for scenario, fn := range map[string]func(
-		t *testing.T,
-		streamingClient streaming_api.StreamingClient,
-		config *ServerConfig,
-	){
-		"produce and consume stream succeeds": testProduceConsumeStream,
-	} {
-		t.Run(scenario, func(t *testing.T) {
-			client, config, teardown := setupTest(t, nil)
-			defer teardown()
-			fn(t, client, config)
-		})
+func TestStreamingManager_ProduceStream_And_ConsumeStream(t *testing.T) {
+	client, _, _, teardown := setupTest(t, nil)
+	defer teardown()
+
+	stream, err := client.ProduceStream(context.Background())
+	require.NoError(t, err)
+
+	for i := 0; i < lines; i++ {
+		err := stream.Send(&streaming_api.ProduceRequest{Point: pointId, Frame: []byte(fmt.Sprintln(i))})
+		require.NoError(t, err)
 	}
+
+	resp, err := stream.CloseAndRecv()
+	require.NoError(t, err)
+
+	require.Equal(t, 1, len(resp.Records))
+	require.Equal(t, pointId, resp.Records[0].Point)
+	require.Equal(t, uint64(90), resp.Records[0].Offset)
+
+	// test consume stream
+	resStream, err := client.ConsumeStream(context.Background(), &streaming_api.ConsumeRequest{Point: pointId})
+	if err != nil {
+		log.Fatalf("error while calling ConsumeStream RPC: %v", err)
+	}
+	i := 0
+	for i = 0; i < lines; i++ {
+		resp, err := resStream.Recv()
+		if err == io.EOF {
+			// we've reached the end of the stream
+			break
+		}
+		require.NoError(t, err)
+		b := resp.GetFrame()
+		require.Equal(t, fmt.Sprintln(i), string(b))
+	}
+	require.Equal(t, lines, i)
 }
 
 func setupTest(t *testing.T, fn func()) (
 	streaming_api.StreamingClient,
+	streaming_api.ResolverHelperClient,
 	*ServerConfig,
 	func(),
 ) {
@@ -85,6 +108,9 @@ func setupTest(t *testing.T, fn func()) (
 			Locus:      locusInstance,
 			Authorizer: authorizer,
 		},
+		ResolverHelperConfig: &ResolverHelperConfig{
+			GetServerer: locusInstance,
+		},
 	}
 
 	gRPCServer, err := NewServer(cfg, grpc.Creds(serverCreds))
@@ -108,53 +134,15 @@ func setupTest(t *testing.T, fn func()) (
 	require.NoError(t, err)
 
 	streamingClient := streaming_api.NewStreamingClient(conn)
+	resolverHelperClient := streaming_api.NewResolverHelperClient(conn)
 
 	if fn != nil {
 		fn()
 	}
-	return streamingClient, cfg, func() {
+	return streamingClient, resolverHelperClient, cfg, func() {
 		gRPCServer.Stop()
 		conn.Close()
 		l.Close()
 		locusInstance.Remove()
 	}
-}
-
-func testProduceConsumeStream(
-	t *testing.T,
-	client streaming_api.StreamingClient,
-	config *ServerConfig,
-) {
-	stream, err := client.ProduceStream(context.Background())
-	require.NoError(t, err)
-
-	for i := 0; i < lines; i++ {
-		err := stream.Send(&streaming_api.ProduceRequest{Point: pointId, Frame: []byte(fmt.Sprintln(i))})
-		require.NoError(t, err)
-	}
-
-	resp, err := stream.CloseAndRecv()
-	require.NoError(t, err)
-
-	require.Equal(t, 1, len(resp.Records))
-	require.Equal(t, pointId, resp.Records[0].Point)
-	require.Equal(t, uint64(90), resp.Records[0].Offset)
-
-	// test consume stream
-	resStream, err := client.ConsumeStream(context.Background(), &streaming_api.ConsumeRequest{Point: pointId})
-	if err != nil {
-		log.Fatalf("error while calling ConsumeStream RPC: %v", err)
-	}
-	i := 0
-	for i = 0; i < lines; i++ {
-		resp, err := resStream.Recv()
-		if err == io.EOF {
-			// we've reached the end of the stream
-			break
-		}
-		require.NoError(t, err)
-		b := resp.GetFrame()
-		require.Equal(t, fmt.Sprintln(i), string(b))
-	}
-	require.Equal(t, lines, i)
 }

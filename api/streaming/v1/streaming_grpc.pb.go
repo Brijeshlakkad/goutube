@@ -192,3 +192,86 @@ var _Streaming_serviceDesc = grpc.ServiceDesc{
 	},
 	Metadata: "api/streaming/v1/streaming.proto",
 }
+
+// ResolverHelperClient is the client API for ResolverHelper service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type ResolverHelperClient interface {
+	GetServers(ctx context.Context, in *GetServersRequest, opts ...grpc.CallOption) (*GetServersResponse, error)
+}
+
+type resolverHelperClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewResolverHelperClient(cc grpc.ClientConnInterface) ResolverHelperClient {
+	return &resolverHelperClient{cc}
+}
+
+func (c *resolverHelperClient) GetServers(ctx context.Context, in *GetServersRequest, opts ...grpc.CallOption) (*GetServersResponse, error) {
+	out := new(GetServersResponse)
+	err := c.cc.Invoke(ctx, "/streaming.v1.ResolverHelper/GetServers", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ResolverHelperServer is the server API for ResolverHelper service.
+// All implementations must embed UnimplementedResolverHelperServer
+// for forward compatibility
+type ResolverHelperServer interface {
+	GetServers(context.Context, *GetServersRequest) (*GetServersResponse, error)
+	mustEmbedUnimplementedResolverHelperServer()
+}
+
+// UnimplementedResolverHelperServer must be embedded to have forward compatible implementations.
+type UnimplementedResolverHelperServer struct {
+}
+
+func (UnimplementedResolverHelperServer) GetServers(context.Context, *GetServersRequest) (*GetServersResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetServers not implemented")
+}
+func (UnimplementedResolverHelperServer) mustEmbedUnimplementedResolverHelperServer() {}
+
+// UnsafeResolverHelperServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to ResolverHelperServer will
+// result in compilation errors.
+type UnsafeResolverHelperServer interface {
+	mustEmbedUnimplementedResolverHelperServer()
+}
+
+func RegisterResolverHelperServer(s *grpc.Server, srv ResolverHelperServer) {
+	s.RegisterService(&_ResolverHelper_serviceDesc, srv)
+}
+
+func _ResolverHelper_GetServers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetServersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ResolverHelperServer).GetServers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/streaming.v1.ResolverHelper/GetServers",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ResolverHelperServer).GetServers(ctx, req.(*GetServersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+var _ResolverHelper_serviceDesc = grpc.ServiceDesc{
+	ServiceName: "streaming.v1.ResolverHelper",
+	HandlerType: (*ResolverHelperServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "GetServers",
+			Handler:    _ResolverHelper_GetServers_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "api/streaming/v1/streaming.proto",
+}

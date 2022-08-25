@@ -34,6 +34,11 @@ var (
 	ErrPipelineShutdown = errors.New("command pipeline closed")
 )
 
+const (
+	recordEntriesRequestType = iota
+	getServersRequestType
+)
+
 /*
 Transport provides a network based transport that can be
 used to communicate with Raft on remote machines. It requires
@@ -244,8 +249,8 @@ func (transport *Transport) returnConn(conn *netConn) {
 	}
 }
 
-// PrepareCommandTransport returns an interface that can be used to pipeline SendCommand requests.
-func (transport *Transport) PrepareCommandTransport(target ServerAddress) (CommandPipeline, error) {
+// PrepareCommandTransport returns an interface that can be used to pipeline SendRecordEntriesRequest requests.
+func (transport *Transport) PrepareCommandTransport(target ServerAddress) (RecordEntriesPipeline, error) {
 	// Get a connection
 	conn, err := transport.getConn(target)
 	if err != nil {
@@ -256,13 +261,18 @@ func (transport *Transport) PrepareCommandTransport(target ServerAddress) (Comma
 	return newNetPipeline(transport, conn), nil
 }
 
-// SendCommand implements the Transport interface.
-func (transport *Transport) SendCommand(target ServerAddress, req *RecordEntriesRequest, resp *RecordEntriesResponse) error {
-	return transport.genericRPC(target, req, resp)
+// SendRecordEntriesRequest implements the Transport interface.
+func (transport *Transport) SendRecordEntriesRequest(target ServerAddress, req *RecordEntriesRequest, resp *RecordEntriesResponse) error {
+	return transport.genericRPC(target, recordEntriesRequestType, req, resp)
+}
+
+// SendGetServersRequest requests the target to provide the list of its followers.
+func (transport *Transport) SendGetServersRequest(target ServerAddress, req *GetServersRequest, resp *GetServersResponse) error {
+	return transport.genericRPC(target, getServersRequestType, req, resp)
 }
 
 // genericRPC handles a simple request/response RPC.
-func (transport *Transport) genericRPC(target ServerAddress, args interface{}, resp interface{}) error {
+func (transport *Transport) genericRPC(target ServerAddress, reqType uint8, args interface{}, resp interface{}) error {
 	// Get a conn
 	conn, err := transport.getConn(target)
 	if err != nil {
@@ -275,7 +285,7 @@ func (transport *Transport) genericRPC(target ServerAddress, args interface{}, r
 	}
 
 	// Send the RPC
-	if err = sendRPC(conn, args); err != nil {
+	if err = sendRPC(conn, reqType, args); err != nil {
 		return err
 	}
 
@@ -347,7 +357,7 @@ func (transport *Transport) handleConn(connCtx context.Context, conn net.Conn) {
 		default:
 		}
 
-		if err := transport.handleCommand(dec, enc); err != nil {
+		if err := transport.handleCommand(r, dec, enc); err != nil {
 			if err != io.EOF {
 				transport.logger.Error("failed to decode incoming command", "error", err)
 			}
@@ -361,18 +371,32 @@ func (transport *Transport) handleConn(connCtx context.Context, conn net.Conn) {
 }
 
 // handleCommand is used to decode and dispatch a single command.
-func (transport *Transport) handleCommand(dec *codec.Decoder, enc *codec.Encoder) error {
-	var req RecordEntriesRequest
-
-	if err := dec.Decode(&req); err != nil {
+func (transport *Transport) handleCommand(r *bufio.Reader, dec *codec.Decoder, enc *codec.Encoder) error {
+	// Get the rpc type
+	rpcType, err := r.ReadByte()
+	if err != nil {
 		return err
 	}
 
 	// Create the RPC object
 	respCh := make(chan RPCResponse, 1)
 	rpc := RPC{
-		Command:  &req,
 		RespChan: respCh,
+	}
+
+	switch rpcType {
+	case recordEntriesRequestType:
+		var req RecordEntriesRequest
+		if err := dec.Decode(&req); err != nil {
+			return err
+		}
+		rpc.Command = &req
+	case getServersRequestType:
+		var req GetServersRequest
+		if err := dec.Decode(&req); err != nil {
+			return err
+		}
+		rpc.Command = &req
 	}
 
 	// Dispatch the RPC
@@ -427,7 +451,7 @@ func decodeResponse(conn *netConn, resp interface{}) (bool, error) {
 	return true, nil
 }
 
-type commandPipeline struct {
+type recordEntriesPipeline struct {
 	conn  *netConn
 	trans *Transport
 
@@ -441,8 +465,8 @@ type commandPipeline struct {
 
 // newNetPipeline is used to construct a netPipeline from a given
 // transport and connection.
-func newNetPipeline(trans *Transport, conn *netConn) *commandPipeline {
-	n := &commandPipeline{
+func newNetPipeline(trans *Transport, conn *netConn) *recordEntriesPipeline {
+	n := &recordEntriesPipeline{
 		conn:         conn,
 		trans:        trans,
 		doneCh:       make(chan Promise, rpcMaxPipeline),
@@ -455,7 +479,7 @@ func newNetPipeline(trans *Transport, conn *netConn) *commandPipeline {
 
 // decodeResponses is a long-running routine that decodes the responses
 // sent on the connection.
-func (cp *commandPipeline) decodeResponses() {
+func (cp *recordEntriesPipeline) decodeResponses() {
 	timeout := cp.trans.timeout
 	for {
 		select {
@@ -477,8 +501,8 @@ func (cp *commandPipeline) decodeResponses() {
 	}
 }
 
-// SendCommand is used to pipeline a new command requests.
-func (cp *commandPipeline) SendCommand(req *RecordEntriesRequest, resp *RecordEntriesResponse) (Promise, error) {
+// SendRecordEntriesRequest is used to pipeline a new command requests.
+func (cp *recordEntriesPipeline) SendRecordEntriesRequest(req *RecordEntriesRequest, resp *RecordEntriesResponse) (Promise, error) {
 	recordPromise := &RecordEntriesPromise{
 		req:  req,
 		resp: resp,
@@ -491,7 +515,7 @@ func (cp *commandPipeline) SendCommand(req *RecordEntriesRequest, resp *RecordEn
 	}
 
 	// Send the RPC
-	if err := sendRPC(cp.conn, recordPromise.req); err != nil {
+	if err := sendRPC(cp.conn, recordEntriesRequestType, recordPromise.req); err != nil {
 		return nil, err
 	}
 
@@ -506,7 +530,13 @@ func (cp *commandPipeline) SendCommand(req *RecordEntriesRequest, resp *RecordEn
 }
 
 // sendRPC is used to encode and send the RPC.
-func sendRPC(conn *netConn, args interface{}) error {
+func sendRPC(conn *netConn, reqType uint8, args interface{}) error {
+	// Write the request type
+	if err := conn.w.WriteByte(reqType); err != nil {
+		conn.Release()
+		return err
+	}
+
 	// Send the request
 	if err := conn.enc.Encode(args); err != nil {
 		conn.Release()
@@ -522,12 +552,12 @@ func sendRPC(conn *netConn, args interface{}) error {
 }
 
 // Consumer returns a channel that can be used to consume complete futures.
-func (cp *commandPipeline) Consumer() <-chan Promise {
+func (cp *recordEntriesPipeline) Consumer() <-chan Promise {
 	return cp.doneCh
 }
 
 // Close is used to shut down the pipeline connection.
-func (cp *commandPipeline) Close() error {
+func (cp *recordEntriesPipeline) Close() error {
 	cp.shutdownLock.Lock()
 	defer cp.shutdownLock.Unlock()
 	if cp.shutdown {
@@ -563,13 +593,13 @@ type StreamLayer interface {
 	Dial(address ServerAddress, timeout time.Duration) (net.Conn, error)
 }
 
-// CommandPipeline is used for pipelining AppendEntries requests. It is used
+// RecordEntriesPipeline is used for pipelining AppendEntries requests. It is used
 // to increase the replication throughput by masking latency and better
 // utilizing bandwidth.
-type CommandPipeline interface {
-	// SendCommand is used to add another request to the pipeline.
+type RecordEntriesPipeline interface {
+	// SendRecordEntriesRequest is used to add another request to the pipeline.
 	// To send may block which is an effective form of back-pressure.
-	SendCommand(req *RecordEntriesRequest, resp *RecordEntriesResponse) (Promise, error)
+	SendRecordEntriesRequest(req *RecordEntriesRequest, resp *RecordEntriesResponse) (Promise, error)
 
 	// Consumer returns a channel that can be used to consume
 	// response futures when they are ready.

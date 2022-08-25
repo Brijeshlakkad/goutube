@@ -77,7 +77,7 @@ func TestTransport_SendCommand(t *testing.T) {
 	appendFunc := func() {
 		defer wg.Done()
 		var out RecordEntriesResponse
-		if err := trans2.SendCommand(trans1.LocalAddr(), &args, &out); err != nil {
+		if err := trans2.SendRecordEntriesRequest(trans1.LocalAddr(), &args, &out); err != nil {
 			t.Fatalf("err: %v", err)
 		}
 
@@ -175,7 +175,7 @@ func TestNetworkTransport_SendCommandPipeline(t *testing.T) {
 
 	//for i := 0; i < 10; i++ {
 	pipelineResp := new(RecordEntriesResponse)
-	_, err = pipeline.SendCommand(&args, pipelineResp)
+	_, err = pipeline.SendRecordEntriesRequest(&args, pipelineResp)
 	require.NoError(t, err)
 	//}
 

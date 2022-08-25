@@ -18,8 +18,14 @@ const (
 )
 
 type StreamingConfig struct {
-	Locus      *DistributedLoci
+	Locus      LocusHelper
 	Authorizer *authorizer
+}
+
+type LocusHelper interface {
+	Append(*streaming_api.ProduceRequest) (uint64, error)
+	ReadAt(string, []byte, uint64) (int, error)
+	ClosePoint(string) error
 }
 
 func (s *StreamingManager) ProduceStream(stream streaming_api.Streaming_ProduceStreamServer) error {
