@@ -92,7 +92,7 @@ func (arc *Arc) appendEntries(s *Follower, key string, nextOffset uint64) {
 		}
 
 		out := new(RecordEntriesResponse)
-		_, err = pipeline.SendCommand(req, out)
+		_, err = pipeline.SendRecordEntriesRequest(req, out)
 		if err != nil {
 			arc.Logger.Error("failed to pipeline commands", "peer", s.peer, "error", err)
 			return

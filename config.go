@@ -1,6 +1,7 @@
 package goutube
 
 import (
+	"github.com/Brijeshlakkad/ring"
 	"time"
 
 	"github.com/Brijeshlakkad/goutube/pointcron"
@@ -14,6 +15,8 @@ type Config struct {
 		StoreAddress string
 		Logger       hclog.Logger
 		Rule         ParticipationRule
+		BindAddress  string
+		Ring         *ring.Ring
 	}
 	Point struct {
 		TickTime       time.Duration

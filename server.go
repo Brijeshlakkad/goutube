@@ -3,7 +3,6 @@ package goutube
 import (
 	"context"
 	"encoding/binary"
-
 	streaming_api "github.com/Brijeshlakkad/goutube/api/streaming/v1"
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_auth "github.com/grpc-ecosystem/go-grpc-middleware/auth"
@@ -20,11 +19,43 @@ var (
 )
 
 type ServerConfig struct {
-	StreamingConfig *StreamingConfig
+	StreamingConfig      *StreamingConfig
+	ResolverHelperConfig *ResolverHelperConfig
+}
+
+type ResolverHelperConfig struct {
+	GetServerer GetServerer
+}
+
+type GetServerer interface {
+	GetServers(string) ([]*streaming_api.Server, error)
+}
+
+type ResolverHelper struct {
+	streaming_api.UnimplementedResolverHelperServer
+	*ResolverHelperConfig
+}
+
+func (r *ResolverHelper) GetServers(ctx context.Context, req *streaming_api.GetServersRequest) (*streaming_api.GetServersResponse, error) {
+	servers, err := r.GetServerer.GetServers(req.GetObjectKey())
+	if err != nil {
+		return nil, err
+	}
+	return &streaming_api.GetServersResponse{Servers: servers}, nil
+}
+
+func NewResolverHelper(config *ResolverHelperConfig) (*ResolverHelper, error) {
+	return &ResolverHelper{
+		ResolverHelperConfig: config,
+	}, nil
 }
 
 func NewServer(config *ServerConfig, opts ...grpc.ServerOption) (*grpc.Server, error) {
 	sm, err := NewStreamingServer(config.StreamingConfig)
+	if err != nil {
+		return nil, err
+	}
+	rm, err := NewResolverHelper(config.ResolverHelperConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -41,6 +72,7 @@ func NewServer(config *ServerConfig, opts ...grpc.ServerOption) (*grpc.Server, e
 	)
 	gRPCServer := grpc.NewServer(opts...)
 	streaming_api.RegisterStreamingServer(gRPCServer, sm)
+	streaming_api.RegisterResolverHelperServer(gRPCServer, rm)
 	return gRPCServer, nil
 }
 

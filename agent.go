@@ -107,30 +107,6 @@ func (a *Agent) setupMux() error {
 	return nil
 }
 
-func (a *Agent) setupLoci() error {
-	lociLn := a.mux.Match(func(reader io.Reader) bool {
-		b := make([]byte, 1)
-		if _, err := reader.Read(b); err != nil {
-			return false
-		}
-		return bytes.Compare(b, []byte{byte(RingRPC)}) == 0
-	})
-
-	lociConfig := Config{}
-	lociConfig.Distributed.StreamLayer = NewStreamLayer(
-		lociLn,
-		a.ServerTLSConfig,
-		a.PeerTLSConfig,
-	)
-	lociConfig.Distributed.LocalID = a.NodeName
-	lociConfig.Distributed.Rule = a.Rule
-
-	var err error
-	a.loci, err = NewDistributedLoci(a.DataDir, lociConfig)
-
-	return err
-}
-
 func (a *Agent) setupServer() error {
 	authorizer := newAuth(
 		a.ACLModelFile,
@@ -140,6 +116,9 @@ func (a *Agent) setupServer() error {
 		StreamingConfig: &StreamingConfig{
 			Locus:      a.loci,
 			Authorizer: authorizer,
+		},
+		ResolverHelperConfig: &ResolverHelperConfig{
+			GetServerer: a.loci,
 		},
 	}
 	var opts []grpc.ServerOption
@@ -165,7 +144,7 @@ func (a *Agent) setupRing() error {
 	if a.Rule == StandaloneLeaderRule || a.Rule == LeaderRule || a.Rule == LeaderFollowerRule {
 		var err error
 		a.ring, err = ring.NewRing(ring.Config{
-			NodeName:         fmt.Sprintf("replication-%s", a.NodeName),
+			NodeName:         a.NodeName,
 			BindAddr:         a.BindAddr,
 			RPCPort:          a.RPCPort,
 			VirtualNodeCount: a.VirtualNodeCount,
@@ -174,6 +153,37 @@ func (a *Agent) setupRing() error {
 		return err
 	}
 	return nil
+}
+
+func (a *Agent) setupLoci() error {
+	lociLn := a.mux.Match(func(reader io.Reader) bool {
+		b := make([]byte, 1)
+		if _, err := reader.Read(b); err != nil {
+			return false
+		}
+		return bytes.Compare(b, []byte{byte(RingRPC)}) == 0
+	})
+
+	rpcAddr, err := a.RPCAddr()
+	if err != nil {
+		return err
+	}
+
+	locusConfig := Config{}
+	locusConfig.Distributed.StreamLayer = NewStreamLayer(
+		lociLn,
+		a.ServerTLSConfig,
+		a.PeerTLSConfig,
+	)
+	locusConfig.Distributed.LocalID = a.NodeName
+	locusConfig.Distributed.Rule = a.Rule
+	// Distributed Locus will use RPC address as its binding address.
+	locusConfig.Distributed.BindAddress = rpcAddr
+	locusConfig.Distributed.Ring = a.ring
+
+	a.loci, err = NewDistributedLoci(a.DataDir, locusConfig)
+
+	return err
 }
 
 func (a *Agent) setupReplicationCluster() error {
@@ -187,7 +197,7 @@ func (a *Agent) setupReplicationCluster() error {
 			return err
 		}
 		a.replicationCluster, err = newReplicationCluster(a.loci, ReplicationClusterConfig{
-			NodeName:      a.NodeName,
+			NodeName:      fmt.Sprintf("replication-%s", a.NodeName),
 			BindAddr:      replicationBindAdrr,
 			SeedAddresses: a.LeaderAddresses,
 			Tags: map[string]string{

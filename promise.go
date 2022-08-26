@@ -157,3 +157,33 @@ func (c *RecordEntriesPromise) respond(resp interface{}) *RecordEntriesPromise {
 	c.resp.Response = resp
 	return c
 }
+
+type GetServersRequest struct {
+}
+
+type GetServersResponse struct {
+	Response interface{}
+}
+
+type GetServersPromise struct {
+	promiseError
+	req  *GetServersRequest
+	resp *GetServersResponse
+}
+
+func (c *GetServersPromise) init() {
+	c.promiseError.init()
+}
+
+func (c *GetServersPromise) Request() *GetServersRequest {
+	return c.req
+}
+
+func (c *GetServersPromise) Response() interface{} {
+	return c.resp
+}
+
+func (c *GetServersPromise) respond(resp interface{}) *GetServersPromise {
+	c.resp.Response = resp
+	return c
+}

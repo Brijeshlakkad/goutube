@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"fmt"
+	"github.com/Brijeshlakkad/ring"
 	"net"
 	"sync"
 	"time"
@@ -21,9 +22,10 @@ type DistributedLoci struct {
 	store  Store
 	logger hclog.Logger
 
-	arc *Arc
+	ring *ring.Ring
+	arc  *Arc
 
-	mu sync.Mutex
+	mu sync.RWMutex
 
 	bundler *RequestBundler
 }
@@ -42,6 +44,7 @@ func NewDistributedLoci(dataDir string, config Config) (
 	d := &DistributedLoci{
 		config:  config,
 		bundler: &RequestBundler{},
+		ring:    config.Distributed.Ring,
 	}
 	var err error
 
@@ -166,6 +169,9 @@ func (d *DistributedLoci) Remove() error {
 }
 
 func (d *DistributedLoci) Join(rpcAddr string, rule ParticipationRule) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	if d.canArcJoin(rule) {
 		return d.arc.join(rpcAddr)
 	}
@@ -173,12 +179,60 @@ func (d *DistributedLoci) Join(rpcAddr string, rule ParticipationRule) error {
 }
 
 func (d *DistributedLoci) Leave(rpcAddr string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	return d.arc.leave(rpcAddr)
 }
 
 func (d *DistributedLoci) canArcJoin(rule ParticipationRule) bool {
 	return (d.config.Distributed.Rule == LeaderRule || d.config.Distributed.Rule == LeaderFollowerRule) &&
 		(rule == FollowerRule || rule == LeaderFollowerRule)
+}
+
+func (d *DistributedLoci) GetServers(objectKey string) ([]*streaming_api.Server, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	thisShouldHandle := true
+
+	var servers []*streaming_api.Server
+	var serverList []Server
+	var peerAddress string
+
+	objectServer, found := d.ring.GetNode(objectKey)
+	if found {
+		peerAddress = objectServer.(string)
+		if peerAddress != d.config.Distributed.BindAddress {
+			thisShouldHandle = false
+		}
+	} else {
+		peerAddress = d.config.Distributed.BindAddress
+	}
+
+	if thisShouldHandle {
+		// This server should handle this object.
+		serverList = d.arc.GetFollowers()
+	} else {
+		var err error
+		serverList, err = d.arc.getPeerFollowers(ServerAddress(peerAddress))
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Include the leader as well.
+	servers = append(servers, &streaming_api.Server{
+		RpcAddr:  d.config.Distributed.BindAddress,
+		IsLeader: true,
+	})
+	for _, server := range serverList {
+		servers = append(servers, &streaming_api.Server{
+			RpcAddr:  string(server.Address),
+			IsLeader: false,
+		})
+	}
+	return servers, nil
 }
 
 type LocusStreamLayer struct {
