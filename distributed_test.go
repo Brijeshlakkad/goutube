@@ -220,6 +220,7 @@ func setupTestDistributedLoci(t *testing.T, rule ParticipationRule,
 		nil,
 		nil,
 	}
+	c.Distributed.BindAddress = listener.Addr().String()
 	c.Distributed.LocalID = localId
 	c.Distributed.Rule = rule
 	pointcronConfig := pointcron.Config{}
