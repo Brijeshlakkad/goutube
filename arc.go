@@ -181,6 +181,10 @@ func (arc *Arc) join(rpcAddr string) error {
 	arc.replicateStateLock.Lock()
 	defer arc.replicateStateLock.Unlock()
 
+	if _, ok := arc.replicateState[rpcAddr]; ok {
+		return nil
+	}
+
 	s, err := NewFollower(ServerAddress(rpcAddr))
 	if err != nil {
 		return err
@@ -242,7 +246,7 @@ func (state *arcState) waitShutdown() {
 	state.routinesGroup.Wait()
 }
 
-// GetFollowers gets the addresses of its followers.
+// GetFollowers gets the addresses of its loadbalancers.
 func (state *arcState) GetFollowers() []Server {
 	var servers []Server
 	for _, server := range state.replicateState {

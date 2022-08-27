@@ -28,7 +28,7 @@ type ResolverHelperConfig struct {
 }
 
 type GetServerer interface {
-	GetServers(string) ([]*streaming_api.Server, error)
+	GetServers(*streaming_api.GetServersRequest) ([]*streaming_api.Server, error)
 }
 
 type ResolverHelper struct {
@@ -37,7 +37,7 @@ type ResolverHelper struct {
 }
 
 func (r *ResolverHelper) GetServers(ctx context.Context, req *streaming_api.GetServersRequest) (*streaming_api.GetServersResponse, error) {
-	servers, err := r.GetServerer.GetServers(req.GetObjectKey())
+	servers, err := r.GetServerer.GetServers(req)
 	if err != nil {
 		return nil, err
 	}

@@ -190,46 +190,17 @@ func (d *DistributedLoci) canArcJoin(rule ParticipationRule) bool {
 		(rule == FollowerRule || rule == LeaderFollowerRule)
 }
 
-func (d *DistributedLoci) GetServers(objectKey string) ([]*streaming_api.Server, error) {
+func (d *DistributedLoci) GetServers(req *streaming_api.GetServersRequest) ([]*streaming_api.Server, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
-	thisShouldHandle := true
-
 	var servers []*streaming_api.Server
-	var serverList []Server
-	var peerAddress string
 
-	objectServer, found := d.ring.GetNode(objectKey)
-	if found {
-		peerAddress = objectServer.(string)
-		if peerAddress != d.config.Distributed.BindAddress {
-			thisShouldHandle = false
-		}
-	} else {
-		peerAddress = d.config.Distributed.BindAddress
-	}
+	serverList := d.ring.GetLoadBalancers()
 
-	if thisShouldHandle {
-		// This server should handle this object.
-		serverList = d.arc.GetFollowers()
-	} else {
-		var err error
-		serverList, err = d.arc.getPeerFollowers(ServerAddress(peerAddress))
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	// Include the leader as well.
-	servers = append(servers, &streaming_api.Server{
-		RpcAddr:  d.config.Distributed.BindAddress,
-		IsLeader: true,
-	})
-	for _, server := range serverList {
+	for _, serverAddr := range serverList {
 		servers = append(servers, &streaming_api.Server{
-			RpcAddr:  string(server.Address),
-			IsLeader: false,
+			RpcAddr: serverAddr,
 		})
 	}
 	return servers, nil

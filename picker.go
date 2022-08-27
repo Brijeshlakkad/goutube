@@ -1,7 +1,6 @@
 package goutube
 
 import (
-	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -12,25 +11,19 @@ import (
 var _ base.PickerBuilder = (*Picker)(nil)
 
 type Picker struct {
-	mu        sync.RWMutex
-	leader    balancer.SubConn
-	followers []balancer.SubConn
-	current   uint64
+	mu            sync.RWMutex
+	loadbalancers []balancer.SubConn
+	current       uint64
 }
 
 func (p *Picker) Build(buildInfo base.PickerBuildInfo) balancer.Picker {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	var followers []balancer.SubConn
-	for sc, scInfo := range buildInfo.ReadySCs {
-		isLeader := scInfo.Address.Attributes.Value("is_leader").(bool)
-		if isLeader {
-			p.leader = sc
-		} else {
-			followers = append(followers, sc)
-		}
+	for sc, _ := range buildInfo.ReadySCs {
+		followers = append(followers, sc)
 	}
-	p.followers = followers
+	p.loadbalancers = followers
 	return p
 }
 
@@ -42,22 +35,21 @@ func (p *Picker) Pick(info balancer.PickInfo) (
 	defer p.mu.RUnlock()
 
 	var result balancer.PickResult
-	if strings.Contains(info.FullMethodName, "Produce") || len(p.followers) == 0 {
-		result.SubConn = p.leader
-	} else if strings.Contains(info.FullMethodName, "Consume") {
-		result.SubConn = p.nextFollower()
-	}
+	result.SubConn = p.nextLoadBalancer()
 	if result.SubConn == nil {
 		return result, balancer.ErrNoSubConnAvailable
 	}
 	return result, nil
 }
 
-func (p *Picker) nextFollower() balancer.SubConn {
+func (p *Picker) nextLoadBalancer() balancer.SubConn {
 	cur := atomic.AddUint64(&p.current, uint64(1))
-	len := uint64(len(p.followers))
-	idx := int(cur % len)
-	return p.followers[idx]
+	followerCount := uint64(len(p.loadbalancers))
+	if followerCount == 0 {
+		return nil
+	}
+	idx := int(cur % followerCount)
+	return p.loadbalancers[idx]
 }
 
 func init() {

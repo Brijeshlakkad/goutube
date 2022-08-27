@@ -36,7 +36,6 @@ service ResolverHelper {
 }
 
 message GetServersRequest {
-    string object_key = 1;
 }
 
 message GetServersResponse {
@@ -45,5 +44,4 @@ message GetServersResponse {
 
 message Server {
     string rpc_addr = 1;
-    bool is_leader = 2;
 }

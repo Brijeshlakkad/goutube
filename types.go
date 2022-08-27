@@ -31,7 +31,7 @@ type ParticipationRule uint8
 
 const (
 	StandaloneLeaderRule ParticipationRule = iota // StandaloneLeaderRule server only participates in the sharding and doesn't need replication.
-	LeaderRule                                    // LeaderRule server participates in the sharding, but also has followers for replication.
+	LeaderRule                                    // LeaderRule server participates in the sharding, but also has loadbalancers for replication.
 	FollowerRule                                  // FollowerRule server only participates in the replication.
 
 	// LeaderFollowerRule server participates both in the sharding and replication (stores the data for other LeaderRule or LeaderFollowerRule).

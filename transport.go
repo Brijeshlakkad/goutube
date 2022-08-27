@@ -266,7 +266,7 @@ func (transport *Transport) SendRecordEntriesRequest(target ServerAddress, req *
 	return transport.genericRPC(target, recordEntriesRequestType, req, resp)
 }
 
-// SendGetServersRequest requests the target to provide the list of its followers.
+// SendGetServersRequest requests the target to provide the list of its loadbalancers.
 func (transport *Transport) SendGetServersRequest(target ServerAddress, req *GetServersRequest, resp *GetServersResponse) error {
 	return transport.genericRPC(target, getServersRequestType, req, resp)
 }

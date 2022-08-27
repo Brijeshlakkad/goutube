@@ -63,7 +63,7 @@ func (arc *Arc) appendEntries(s *Follower, key string, nextOffset uint64) {
 	lastOffset, err := arc.store.GetPointEvent(key)
 
 	if err != nil {
-		arc.Logger.Error("Error while synchronizing the followers", "error", err)
+		arc.Logger.Error("Error while synchronizing the loadbalancers", "error", err)
 	}
 	var entries []*RecordRequest
 	for nextOffset <= lastOffset {
