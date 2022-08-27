@@ -20,6 +20,87 @@ import (
 	"time"
 )
 
+func TestLoadBalancer_ProduceStream(t *testing.T) {
+	objectKey := testPointId
+	loadBalancerClient, ringInstance, lociMap, teardown := setupTestLoadBalancer(t)
+	defer teardown()
+
+	// Find the responsible server for this object.
+	nodeRPCAddr, found := ringInstance.GetNode(objectKey)
+	require.True(t, found)
+
+	objNodeIP, err := net.ResolveTCPAddr("tcp", nodeRPCAddr.(string))
+	require.NoError(t, err)
+
+	var objLeader streaming_api.StreamingClient
+	for leader, _ := range lociMap {
+		leaderIP, err := net.ResolveTCPAddr("tcp", leader.DistributedLoci.config.Distributed.RPCAddress)
+		require.NoError(t, err)
+		if objNodeIP.String() == leaderIP.String() {
+			objLeader = leader.client
+			break
+		}
+	}
+	require.NotNil(t, objLeader)
+
+	stream, err := loadBalancerClient.ProduceStream(context.Background())
+	require.NoError(t, err)
+
+	expectedOffset := uint64(0)
+	expectedPos := uint64(0)
+	for i := 1; i <= testPointLines; i++ {
+		expectedOffset = expectedPos
+		data := []byte(fmt.Sprintf("Line: %d", i))
+		err := stream.Send(&streaming_api.ProduceRequest{Point: objectKey, Frame: data})
+		require.NoError(t, err)
+		expectedPos = expectedOffset + uint64(len(data)+lenWidth)
+	}
+	resp, err := stream.CloseAndRecv()
+	require.NoError(t, err)
+
+	require.Equal(t, 1, len(resp.Records))
+	require.Equal(t, objectKey, resp.Records[0].Point)
+	require.Equal(t, expectedOffset, resp.Records[0].Offset)
+
+	// test consume stream from load balancer client
+	resStream, err := loadBalancerClient.ConsumeStream(context.Background(), &streaming_api.ConsumeRequest{Point: objectKey})
+	if err != nil {
+		t.Fatalf("error while calling ConsumeStream from Load Balancer: %v", err)
+	}
+	i := 1
+	for ; i <= testPointLines; i++ {
+		expectedData := fmt.Sprintf("Line: %d", i)
+		resp, err := resStream.Recv()
+		if err == io.EOF {
+			// we've reached the end of the stream
+			break
+		}
+		require.NoError(t, err)
+		b := resp.GetFrame()
+		require.Equal(t, expectedData, string(b))
+	}
+	require.Equal(t, testPointLines+1, i)
+
+	// test consume stream from the responsible server
+	resStream, err = objLeader.ConsumeStream(context.Background(), &streaming_api.ConsumeRequest{Point: testPointId})
+	if err != nil {
+		t.Fatalf("error while calling ConsumeStream from Load Balancer: %v", err)
+	}
+	i = 1
+	for ; i <= testPointLines; i++ {
+		expectedData := fmt.Sprintf("Line: %d", i)
+		resp, err := resStream.Recv()
+		if err == io.EOF {
+			// we've reached the end of the stream
+			break
+		}
+		require.NoError(t, err)
+		b := resp.GetFrame()
+		require.Equal(t, expectedData, string(b))
+	}
+	require.Equal(t, testPointLines+1, i)
+}
+
 func TestLoadBalancer_ConsumeStream(t *testing.T) {
 	objectKey := "sample-object-key"
 	loadBalancerClient, ringInstance, lociMap, teardown := setupTestLoadBalancer(t)
@@ -33,10 +114,12 @@ func TestLoadBalancer_ConsumeStream(t *testing.T) {
 
 	var objLeader *DistributedLoci
 	for leader, _ := range lociMap {
-		leaderIP, err := net.ResolveTCPAddr("tcp", leader.DistributedLoci.config.Distributed.BindAddress)
+		leaderIP, err := net.ResolveTCPAddr("tcp", leader.DistributedLoci.config.Distributed.RPCAddress)
 		require.NoError(t, err)
 		if objNodeIP.String() == leaderIP.String() {
 			objLeader = leader.DistributedLoci
+
+			fmt.Println(leader.DistributedLoci.locus.locusDir)
 			break
 		}
 	}
@@ -116,9 +199,10 @@ func setupTestLoadBalancer(t *testing.T) (streaming_api.StreamingClient,
 
 	streamingClient_Leader_2, _, distributedLoci_Leader_2, teardown_Leader_2 := setupTestStreamingServer(t,
 		LeaderRule,
-		"distributed-locus-leader-1",
+		"distributed-locus-leader-2",
 		&ring.Config{
-			MemberType: ring.ShardMember,
+			MemberType:    ring.ShardMember,
+			SeedAddresses: []string{distributedLoci_Leader_1.ring.BindAddr},
 		})
 	teardowns = append(teardowns, teardown_Leader_2)
 	testObj_Leader_2 := &testReplicationClusterMember{
@@ -138,7 +222,7 @@ func setupTestLoadBalancer(t *testing.T) (streaming_api.StreamingClient,
 			distributedLoci_Follower,
 		})
 
-		err := distributedLoci_Leader_1.Join(distributedLoci_Follower.config.Distributed.StreamLayer.Addr().String(), distributedLoci_Follower.config.Distributed.Rule)
+		err := distributedLoci_Leader_2.Join(distributedLoci_Follower.config.Distributed.StreamLayer.Addr().String(), distributedLoci_Follower.config.Distributed.Rule)
 		require.NoError(t, err)
 	}
 	// END: setup the ring members
@@ -153,7 +237,7 @@ func setupTestLoadBalancer(t *testing.T) (streaming_api.StreamingClient,
 		BindAddr:         fmt.Sprintf("localhost:%d", ports[1]),
 		RPCPort:          ports[0],
 		VirtualNodeCount: 3,
-		SeedAddresses:    []string{distributedLoci_Leader_1.ring.BindAddr},
+		SeedAddresses:    []string{distributedLoci_Leader_1.ring.BindAddr, distributedLoci_Leader_2.ring.BindAddr},
 		MemberType:       ring.LoadBalancerMember,
 	})
 	require.NoError(t, err)
@@ -235,22 +319,22 @@ func setupTestStreamingServer(t *testing.T,
 	ports := dynaport.Get(1)
 
 	rpcAddr := fmt.Sprintf(
-		":%d",
+		"localhost:%d",
 		ports[0],
 	)
-	ln, err := net.Listen("tcp", rpcAddr)
+	rpcListener, err := net.Listen("tcp", rpcAddr)
 	require.NoError(t, err)
 
-	mux := cmux.New(ln)
+	mux := cmux.New(rpcListener)
 
-	l := mux.Match(cmux.Any())
+	serverListener := mux.Match(cmux.Any())
 
 	// Configure the server’s TLS credentials.
 	serverTLSConfig, err := SetupTLSConfig(TLSConfig{
 		CertFile:      ServerCertFile,
 		KeyFile:       ServerKeyFile,
 		CAFile:        CAFile,
-		ServerAddress: l.Addr().String(),
+		ServerAddress: serverListener.Addr().String(),
 		Server:        true,
 	})
 	require.NoError(t, err)
@@ -289,7 +373,7 @@ func setupTestStreamingServer(t *testing.T,
 	require.NoError(t, err)
 
 	go func() {
-		gRPCServer.Serve(l)
+		gRPCServer.Serve(serverListener)
 	}()
 
 	tlsConfig, err := SetupTLSConfig(TLSConfig{
@@ -302,7 +386,7 @@ func setupTestStreamingServer(t *testing.T,
 
 	tlsCreds := credentials.NewTLS(tlsConfig)
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(tlsCreds)}
-	conn, err := grpc.Dial(l.Addr().String(), opts...)
+	conn, err := grpc.Dial(serverListener.Addr().String(), opts...)
 	require.NoError(t, err)
 
 	streamingClient := streaming_api.NewStreamingClient(conn)
@@ -314,9 +398,9 @@ func setupTestStreamingServer(t *testing.T,
 		mux.Close()
 		gRPCServer.Stop()
 		conn.Close()
-		ln.Close()
+		rpcListener.Close()
 		lociLn.Close()
-		l.Close()
+		serverListener.Close()
 		locusInstance.Shutdown()
 		locusTeardown()
 	}
@@ -343,7 +427,7 @@ func setupTestDistributedLoci_LoadBalancer(t *testing.T,
 	}
 	_, port, err := net.SplitHostPort(listener.Addr().String())
 	require.NoError(t, err)
-	c.Distributed.BindAddress = fmt.Sprintf("localhost:%s", port)
+	c.Distributed.RPCAddress = fmt.Sprintf("localhost:%s", port)
 	c.Distributed.LocalID = localId
 	c.Distributed.Rule = rule
 	pointcronConfig := pointcron.Config{}

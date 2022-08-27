@@ -96,7 +96,10 @@ func TestDistributedLoci_ParticipationRule(t *testing.T) {
 }
 
 func TestDistributedLoci_GetServers(t *testing.T) {
-	distributedLoci_Leader, teardown_Leader := setupTestDistributedLoci(t, LeaderRule, "distributed-locus-0", &ring.Config{MemberType: ring.ShardMember})
+	distributedLoci_Leader, teardown_Leader := setupTestDistributedLoci(t,
+		LeaderRule,
+		"distributed-locus-leader-1",
+		&ring.Config{MemberType: ring.ShardMember})
 	defer teardown_Leader()
 
 	var teardowns []func()
@@ -116,10 +119,22 @@ func TestDistributedLoci_GetServers(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	servers, err := distributedLoci_Leader.GetServers("example-key")
+	_, teardown_loadBalancer_1 := setupTestDistributedLoci(t,
+		LeaderRule,
+		"loadbalancer-locus-1",
+		&ring.Config{MemberType: ring.LoadBalancerMember, SeedAddresses: []string{distributedLoci_Leader.ring.BindAddr}}) // Will be part of the distributedLoci_Leader_1's ring.
+	defer teardown_loadBalancer_1()
+
+	_, teardown_loadBalancer_2 := setupTestDistributedLoci(t,
+		LeaderRule,
+		"loadbalancer-locus-2",
+		&ring.Config{MemberType: ring.LoadBalancerMember, SeedAddresses: []string{distributedLoci_Leader.ring.BindAddr}}) // Will be part of the distributedLoci_Leader_1's ring.
+	defer teardown_loadBalancer_2()
+
+	servers, err := distributedLoci_Leader.GetServers(nil)
 	require.NoError(t, err)
 
-	require.Equal(t, followerCount+1, len(servers))
+	require.Equal(t, 2, len(servers))
 }
 
 func TestDistributedLoci_GetPeerServers(t *testing.T) {
@@ -166,6 +181,12 @@ func TestDistributedLoci_GetPeerServers(t *testing.T) {
 		require.NoError(t, err)
 	}
 
+	_, teardown_loadBalancer_1 := setupTestDistributedLoci(t,
+		LeaderRule,
+		"loadbalancer-locus-1",
+		&ring.Config{MemberType: ring.LoadBalancerMember, SeedAddresses: []string{distributedLoci_Leader_1.ring.BindAddr, distributedLoci_Leader_2.ring.BindAddr}}) // Will be part of the distributedLoci_Leader_1's ring.
+	defer teardown_loadBalancer_1()
+
 	objectKey := "example-key"
 
 	responsibleServer, found := distributedLoci_Leader_1.ring.GetNode(objectKey)
@@ -178,15 +199,15 @@ func TestDistributedLoci_GetPeerServers(t *testing.T) {
 	require.NoError(t, err)
 
 	if responsibleServer == leader_1_RPCAddr {
-		// If the leader 1 is responsible for objectKey, then request leader 2 to get its followers.
-		servers, err := distributedLoci_Leader_2.GetServers(objectKey)
+		// If the leader 1 is responsible for objectKey, then request leader 2 to get its loadbalancers.
+		servers, err := distributedLoci_Leader_2.GetServers(nil)
 		require.NoError(t, err)
-		require.Equal(t, followerCount_1+1, len(servers))
+		require.Equal(t, 1, len(servers))
 	} else if responsibleServer == leader_2_RPCAddr {
-		// If the leader 2 is responsible for objectKey, then request leader 1 to get its followers.
-		servers, err := distributedLoci_Leader_1.GetServers(objectKey)
+		// If the leader 2 is responsible for objectKey, then request leader 1 to get its loadbalancers.
+		servers, err := distributedLoci_Leader_1.GetServers(nil)
 		require.NoError(t, err)
-		require.Equal(t, followerCount_2+1, len(servers))
+		require.Equal(t, 1, len(servers))
 	} else {
 		t.Fatalf("the responsible server for the object key: %s is not correct!", objectKey)
 	}
@@ -212,7 +233,7 @@ func setupTestDistributedLoci(t *testing.T,
 		nil,
 		nil,
 	}
-	c.Distributed.BindAddress = listener.Addr().String()
+	c.Distributed.RPCAddress = listener.Addr().String()
 	c.Distributed.LocalID = localId
 	c.Distributed.Rule = rule
 	pointcronConfig := pointcron.Config{}
@@ -224,7 +245,7 @@ func setupTestDistributedLoci(t *testing.T,
 	if ringConfig != nil {
 		nodeName := ringConfig.NodeName
 		if nodeName == "" {
-			nodeName = fmt.Sprintf("replication-%s", localId)
+			nodeName = fmt.Sprintf("ring-%s", localId)
 		}
 		bindAddr := ringConfig.BindAddr
 		if bindAddr == "" {
@@ -248,6 +269,7 @@ func setupTestDistributedLoci(t *testing.T,
 			RPCPort:          rpcPort,
 			VirtualNodeCount: virtualNodeCount,
 			SeedAddresses:    seedAddresses,
+			MemberType:       ringConfig.MemberType,
 		})
 		require.NoError(t, err)
 		c.Distributed.Ring = ringInstance

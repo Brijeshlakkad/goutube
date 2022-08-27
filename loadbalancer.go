@@ -133,15 +133,25 @@ func (lb *loadBalancer) ProduceStream(stream streaming_api.Streaming_ProduceStre
 
 		// Forward the request to designated server.
 		for {
-			req, err := stream.Recv()
+			if err = produceStream.Send(req); err != nil {
+				return err
+			}
+			req, err = stream.Recv()
 			if err == io.EOF {
+				// Close the forwarding stream.
+				resp, err := produceStream.CloseAndRecv()
+				if err != nil {
+					return err
+				}
+				// Send the response and close the client stream.
+				if err := stream.SendAndClose(resp); err != nil {
+					return err
+				}
 				// can return the connection back.
 				returnTheConnection = true
 				break
 			} else if err != nil {
 				// cannot return the connection back to the pool.
-				return err
-			} else if err = produceStream.Send(req); err != nil {
 				return err
 			}
 		}

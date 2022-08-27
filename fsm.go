@@ -21,7 +21,7 @@ func (arc *Arc) runFSM() {
 		resp = arc.fsm.Apply(cp.req)
 
 		if err := arc.store.AddPointEvent(resp.StoreKey.(string), resp.StoreValue.(uint64)); err != nil {
-			arc.Logger.Error("failed to add event to the store", "error", err)
+			arc.logger.Error("failed to add event to the store", "error", err)
 		}
 
 		return resp.StoreKey

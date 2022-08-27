@@ -15,7 +15,7 @@ type Config struct {
 		StoreAddress string
 		Logger       hclog.Logger
 		Rule         ParticipationRule
-		BindAddress  string
+		RPCAddress   string
 		Ring         *ring.Ring
 	}
 	Point struct {

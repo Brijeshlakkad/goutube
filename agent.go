@@ -43,7 +43,7 @@ type AgentConfig struct {
 	ServerTLSConfig *tls.Config // Served to clients.
 	PeerTLSConfig   *tls.Config // Servers so they can connect with and replicate each other.
 
-	LeaderAddresses []string          // Addresses of the servers which will set this server as one of its followers (for replication).
+	LeaderAddresses []string          // Addresses of the servers which will set this server as one of its loadbalancers (for replication).
 	Rule            ParticipationRule // True, if this server takes part in the ring (peer-to-peer architecture) and/or replication.
 	MemberType      ring.MemberType
 }
@@ -179,7 +179,7 @@ func (a *Agent) setupLoci() error {
 	locusConfig.Distributed.LocalID = a.NodeName
 	locusConfig.Distributed.Rule = a.Rule
 	// Distributed Locus will use RPC address as its binding address.
-	locusConfig.Distributed.BindAddress = rpcAddr
+	locusConfig.Distributed.RPCAddress = rpcAddr
 	locusConfig.Distributed.Ring = a.ring
 
 	a.loci, err = NewDistributedLoci(a.DataDir, locusConfig)
