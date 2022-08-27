@@ -2,6 +2,7 @@ package goutube
 
 import (
 	"fmt"
+	"github.com/Brijeshlakkad/ring"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/attributes"
@@ -104,8 +105,7 @@ func setupTestDistributedLocus(t *testing.T, followerCount int) (*DistributedLoc
 	distributedLoci_Leader, teardown_Leader := setupTestDistributedLoci(t,
 		LeaderRule,
 		fmt.Sprintf("distributed-locus-leader"),
-		[]string{},
-		true) // Will be part of the distributedLoci_Leader_1's ring.
+		&ring.Config{MemberType: ring.ShardMember}) // Will be part of the distributedLoci_Leader_1's ring.
 	teardowns = append(teardowns, teardown_Leader)
 
 	expectedServers = append(expectedServers, resolver.Address{
@@ -117,8 +117,7 @@ func setupTestDistributedLocus(t *testing.T, followerCount int) (*DistributedLoc
 		distributedLoci_Follower, teardown_Follower := setupTestDistributedLoci(t,
 			FollowerRule,
 			fmt.Sprintf("distributed-locus-follower-2-%d", i),
-			[]string{},
-			false)
+			nil)
 		teardowns = append(teardowns, teardown_Follower)
 
 		// Join replication cluster
