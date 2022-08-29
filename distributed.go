@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"crypto/tls"
 	"fmt"
-	"github.com/Brijeshlakkad/ring"
 	"net"
 	"sync"
 	"time"
+
+	"github.com/Brijeshlakkad/ring"
 
 	streaming_api "github.com/Brijeshlakkad/goutube/api/streaming/v1"
 	"github.com/Brijeshlakkad/goutube/pointcron"
@@ -201,6 +202,23 @@ func (d *DistributedLoci) GetServers(req *streaming_api.GetServersRequest) ([]*s
 	for _, serverAddr := range serverList {
 		servers = append(servers, &streaming_api.Server{
 			RpcAddr: serverAddr,
+		})
+	}
+	return servers, nil
+}
+
+func (d *DistributedLoci) GetFollowers(req *streaming_api.GetFollowersRequest) ([]*streaming_api.Server, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	var servers []*streaming_api.Server
+
+	serverList := d.arc.GetFollowers()
+
+	// Include the leader as well.
+	for _, server := range serverList {
+		servers = append(servers, &streaming_api.Server{
+			RpcAddr: string(server.Address),
 		})
 	}
 	return servers, nil

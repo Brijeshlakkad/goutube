@@ -66,7 +66,7 @@ var _ resolver.Resolver = (*Resolver)(nil)
 func (r *Resolver) ResolveNow(resolver.ResolveNowOptions) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	client := streaming_api.NewResolverHelperClient(r.resolverConn)
+	client := streaming_api.NewLBResolverHelperClient(r.resolverConn)
 	// Get cluster and then set on cc attributed
 	ctx := context.Background()
 	res, err := client.GetServers(ctx, &streaming_api.GetServersRequest{})

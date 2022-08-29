@@ -60,7 +60,7 @@ func TestStreamingManager_ProduceStream_And_ConsumeStream(t *testing.T) {
 
 func setupTestServer(t *testing.T, fn func()) (
 	streaming_api.StreamingClient,
-	streaming_api.ResolverHelperClient,
+	streaming_api.LBResolverHelperClient,
 	*ServerConfig,
 	func(),
 ) {
@@ -133,7 +133,7 @@ func setupTestServer(t *testing.T, fn func()) (
 	require.NoError(t, err)
 
 	streamingClient := streaming_api.NewStreamingClient(conn)
-	resolverHelperClient := streaming_api.NewResolverHelperClient(conn)
+	resolverHelperClient := streaming_api.NewLBResolverHelperClient(conn)
 
 	if fn != nil {
 		fn()

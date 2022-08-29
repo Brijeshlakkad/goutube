@@ -56,7 +56,7 @@ func (arc *Arc) appendEntries(s *Follower, key string, nextOffset uint64) {
 	var err error
 	pipeline, err := arc.transport.PrepareCommandTransport(peer.Address)
 	if err != nil {
-		arc.logger.Error("failed to pipeline appendEntries", "peer", s.peer, "error", err)
+		arc.logger.Error("failed to prepare command transport pipeline", "peer", s.peer, "error", err)
 		return
 	}
 	// Pipeline the append entries

@@ -22,8 +22,7 @@ var (
 
 // loadBalancer finds the responsible server for the provided request.
 // If the request relates to producing, it will redirect it to the leader of the cluster responsible for the respective object.
-// For now, the request relating to consuming will get redirected to the leader of that object cluster.
-// TODO: However, in the future, this will get the redirect the stream to the replica of that object cluster in round robin fashion.
+// For now, the request relating to consuming will get redirected to the replica of that object cluster in the round-robin fashion.
 type loadBalancer struct {
 	streaming_api.UnimplementedStreamingServer
 	*loadbalancerConfig
@@ -42,6 +41,8 @@ type loadBalancer struct {
 
 	maxPool int
 	logger  hclog.Logger
+
+	cache map[ServerAddress]*followerCache // Todo: TTL and invalidate bad addresses
 }
 
 type loadbalancerConfig struct {
@@ -66,6 +67,7 @@ func newLoadBalancer(config *loadbalancerConfig) (*loadBalancer, error) {
 		logger:             config.Logger,
 		maxPool:            config.MaxPool,
 		shutdownCh:         make(chan struct{}),
+		cache:              make(map[ServerAddress]*followerCache),
 	}
 	// Create the connection context and then start our listener.
 	lb.setupStreamContext()
@@ -174,14 +176,41 @@ func (lb *loadBalancer) ConsumeStream(req *streaming_api.ConsumeRequest, stream 
 	}
 
 	// This will return the rpc address of the leader node.
-	shardNodeRPCAddr, found := lb.ring.GetNode(req.Point)
+	shardNodeRPCAddrI, found := lb.ring.GetNode(req.Point)
 	if !found {
 		return ErrCannotHandleRequest
 	}
 
-	conn, err := lb.getConn(ServerAddress(shardNodeRPCAddr.(string)))
+	shardNodeRPCAddr := ServerAddress(shardNodeRPCAddrI.(string))
+
+	leaderConn, err := lb.getConn(shardNodeRPCAddr)
 	if err != nil {
 		return err
+	}
+
+	var conn *grpc.ClientConn
+
+	_, followerCached := lb.cache[shardNodeRPCAddr]
+
+	if !followerCached {
+		resolverHelperClient := streaming_api.NewFollowerResolverHelperClient(leaderConn)
+		var resp *streaming_api.GetFollowersResponse
+		resp, err = resolverHelperClient.GetFollowers(lb.streamCtx, &streaming_api.GetFollowersRequest{})
+		// cache the list of followers for this leader.
+		lb.cache[shardNodeRPCAddr] = NewFollowerCache(resp.Servers)
+	}
+
+	cache, _ := lb.cache[shardNodeRPCAddr]
+	followerAddress, found := cache.getNextFollower()
+
+	if err != nil || !found {
+		// Try forwarding the request to the leader node of the object replication cluster.
+		conn = leaderConn
+	} else {
+		conn, err = lb.getConn(followerAddress)
+		if err != nil {
+			return err
+		}
 	}
 
 	client := streaming_api.NewStreamingClient(conn)
@@ -337,4 +366,40 @@ func (lb *loadBalancer) IsShutdown() bool {
 	default:
 		return false
 	}
+}
+
+// followerCache stores the addresses of the followers and keeps the track of which follower should be requested next.
+type followerCache struct {
+	followers         map[uint8]ServerAddress
+	nextFollowerIndex uint8
+	lock              sync.Mutex
+}
+
+func NewFollowerCache(followers []*streaming_api.Server) *followerCache {
+	fc := &followerCache{
+		followers:         make(map[uint8]ServerAddress),
+		nextFollowerIndex: 0,
+	}
+
+	i := uint8(0)
+	for _, follower := range followers {
+		fc.followers[i] = ServerAddress(follower.RpcAddr)
+		i++
+	}
+
+	return fc
+}
+
+func (f *followerCache) getNextFollower() (ServerAddress, bool) {
+	if len(f.followers) == 0 {
+		return "", false
+	}
+
+	curIndex := f.nextFollowerIndex
+
+	f.lock.Lock()
+	f.nextFollowerIndex = (f.nextFollowerIndex + 1) % uint8(len(f.followers))
+	f.lock.Unlock()
+
+	return f.followers[curIndex], true
 }

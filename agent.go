@@ -119,8 +119,10 @@ func (a *Agent) setupServer() error {
 			Authorizer: authorizer,
 		},
 		ResolverHelperConfig: &ResolverHelperConfig{
-			GetServerer: a.loci,
+			GetServerer:   a.loci,
+			GetFollowerer: a.loci,
 		},
+		MemberType: a.MemberType,
 	}
 	var opts []grpc.ServerOption
 	if a.ServerTLSConfig != nil {

@@ -53,6 +53,5 @@ func (arc *Arc) notifyFollowers(key interface{}) {
 func asyncNotifyCh(ch chan interface{}, key interface{}) {
 	select {
 	case ch <- key:
-	default:
 	}
 }
