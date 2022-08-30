@@ -3,7 +3,6 @@ package goutube
 import (
 	"testing"
 
-	"google.golang.org/grpc/attributes"
 	"google.golang.org/grpc/balancer"
 	"google.golang.org/grpc/balancer/base"
 	"google.golang.org/grpc/resolver"
@@ -57,9 +56,7 @@ func setupTestPicker() (*Picker, []*subConn) {
 	}
 	for i := 0; i < 3; i++ {
 		sc := &subConn{}
-		addr := resolver.Address{
-			Attributes: attributes.New("is_leader", i == 0),
-		}
+		addr := resolver.Address{}
 		// 0th sub conn is the leader
 		sc.UpdateAddresses([]resolver.Address{addr})
 		buildInfo.ReadySCs[sc] = base.SubConnInfo{Address: addr}

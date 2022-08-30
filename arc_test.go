@@ -47,7 +47,7 @@ func TestArc_FSM(t *testing.T) {
 
 	for i := 0; i < 10; i++ {
 		data := []byte(fmt.Sprintf("Test data line %d", i))
-		resp, err := apply(arc, AppendRequestType, &streaming_api.ProduceRequest{Point: pointId, Frame: data})
+		resp, err := apply(arc, AppendRequestType, &streaming_api.ProduceRequest{Point: testPointId, Frame: data})
 		require.NoError(t, err)
 
 		records := resp.(*streaming_api.ProduceResponse).Records
@@ -57,7 +57,7 @@ func TestArc_FSM(t *testing.T) {
 	var pos uint64
 	for i := uint64(0); i < 10; i++ {
 		data := []byte(fmt.Sprintf("Test data line %d", i))
-		nextOffset, read, err := locus.Read(pointId, pos)
+		nextOffset, read, err := locus.Read(testPointId, pos)
 		require.NoError(t, err)
 		require.Equal(t, data, read)
 		pos += uint64(len(data)) + lenWidth
@@ -134,7 +134,7 @@ func TestArc_Followers(t *testing.T) {
 
 	for i := 0; i < 10; i++ {
 		data := []byte(fmt.Sprintf("Test data line %d", i))
-		resp, err := apply(arc_leader, AppendRequestType, &streaming_api.ProduceRequest{Point: pointId, Frame: data})
+		resp, err := apply(arc_leader, AppendRequestType, &streaming_api.ProduceRequest{Point: testPointId, Frame: data})
 		require.NoError(t, err)
 
 		records := resp.(*streaming_api.ProduceResponse).Records
@@ -147,7 +147,7 @@ func TestArc_Followers(t *testing.T) {
 	var pos uint64
 	for i := uint64(0); i < 10; i++ {
 		data := []byte(fmt.Sprintf("Test data line %d", i))
-		nextOffset, read, err := locus_Follower.Read(pointId, pos)
+		nextOffset, read, err := locus_Follower.Read(testPointId, pos)
 		require.NoError(t, err)
 		require.Equal(t, data, read)
 		pos += uint64(len(data)) + lenWidth

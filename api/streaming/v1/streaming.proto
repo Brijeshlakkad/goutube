@@ -31,12 +31,11 @@ message Record {
     uint64 offset = 2;
 }
 
-service ResolverHelper {
+service LBResolverHelper {
     rpc GetServers(GetServersRequest) returns (GetServersResponse){}
 }
 
 message GetServersRequest {
-    string object_key = 1;
 }
 
 message GetServersResponse {
@@ -45,5 +44,15 @@ message GetServersResponse {
 
 message Server {
     string rpc_addr = 1;
-    bool is_leader = 2;
+}
+
+service FollowerResolverHelper {
+    rpc GetFollowers(GetFollowersRequest) returns (GetFollowersResponse){}
+}
+
+message GetFollowersRequest {
+}
+
+message GetFollowersResponse {
+    repeated Server servers = 1;
 }

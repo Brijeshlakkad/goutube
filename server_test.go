@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"net"
 	"testing"
 	"time"
@@ -17,19 +16,19 @@ import (
 )
 
 var (
-	pointId = "sample_file"
-	lines   = 10
+	testPointId    = "sample_file"
+	testPointLines = 10
 )
 
 func TestStreamingManager_ProduceStream_And_ConsumeStream(t *testing.T) {
-	client, _, _, teardown := setupTest(t, nil)
+	client, _, _, teardown := setupTestServer(t, nil)
 	defer teardown()
 
 	stream, err := client.ProduceStream(context.Background())
 	require.NoError(t, err)
 
-	for i := 0; i < lines; i++ {
-		err := stream.Send(&streaming_api.ProduceRequest{Point: pointId, Frame: []byte(fmt.Sprintln(i))})
+	for i := 0; i < testPointLines; i++ {
+		err := stream.Send(&streaming_api.ProduceRequest{Point: testPointId, Frame: []byte(fmt.Sprintln(i))})
 		require.NoError(t, err)
 	}
 
@@ -37,16 +36,16 @@ func TestStreamingManager_ProduceStream_And_ConsumeStream(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, 1, len(resp.Records))
-	require.Equal(t, pointId, resp.Records[0].Point)
+	require.Equal(t, testPointId, resp.Records[0].Point)
 	require.Equal(t, uint64(90), resp.Records[0].Offset)
 
 	// test consume stream
-	resStream, err := client.ConsumeStream(context.Background(), &streaming_api.ConsumeRequest{Point: pointId})
+	resStream, err := client.ConsumeStream(context.Background(), &streaming_api.ConsumeRequest{Point: testPointId})
 	if err != nil {
-		log.Fatalf("error while calling ConsumeStream RPC: %v", err)
+		t.Fatalf("error while calling ConsumeStream RPC: %v", err)
 	}
 	i := 0
-	for i = 0; i < lines; i++ {
+	for i = 0; i < testPointLines; i++ {
 		resp, err := resStream.Recv()
 		if err == io.EOF {
 			// we've reached the end of the stream
@@ -56,12 +55,12 @@ func TestStreamingManager_ProduceStream_And_ConsumeStream(t *testing.T) {
 		b := resp.GetFrame()
 		require.Equal(t, fmt.Sprintln(i), string(b))
 	}
-	require.Equal(t, lines, i)
+	require.Equal(t, testPointLines, i)
 }
 
-func setupTest(t *testing.T, fn func()) (
+func setupTestServer(t *testing.T, fn func()) (
 	streaming_api.StreamingClient,
-	streaming_api.ResolverHelperClient,
+	streaming_api.LBResolverHelperClient,
 	*ServerConfig,
 	func(),
 ) {
@@ -134,7 +133,7 @@ func setupTest(t *testing.T, fn func()) (
 	require.NoError(t, err)
 
 	streamingClient := streaming_api.NewStreamingClient(conn)
-	resolverHelperClient := streaming_api.NewResolverHelperClient(conn)
+	resolverHelperClient := streaming_api.NewLBResolverHelperClient(conn)
 
 	if fn != nil {
 		fn()
@@ -143,6 +142,6 @@ func setupTest(t *testing.T, fn func()) (
 		gRPCServer.Stop()
 		conn.Close()
 		l.Close()
-		locusInstance.Remove()
+		locusInstance.Shutdown()
 	}
 }

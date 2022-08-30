@@ -193,83 +193,167 @@ var _Streaming_serviceDesc = grpc.ServiceDesc{
 	Metadata: "api/streaming/v1/streaming.proto",
 }
 
-// ResolverHelperClient is the client API for ResolverHelper service.
+// LBResolverHelperClient is the client API for LBResolverHelper service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
-type ResolverHelperClient interface {
+type LBResolverHelperClient interface {
 	GetServers(ctx context.Context, in *GetServersRequest, opts ...grpc.CallOption) (*GetServersResponse, error)
 }
 
-type resolverHelperClient struct {
+type lBResolverHelperClient struct {
 	cc grpc.ClientConnInterface
 }
 
-func NewResolverHelperClient(cc grpc.ClientConnInterface) ResolverHelperClient {
-	return &resolverHelperClient{cc}
+func NewLBResolverHelperClient(cc grpc.ClientConnInterface) LBResolverHelperClient {
+	return &lBResolverHelperClient{cc}
 }
 
-func (c *resolverHelperClient) GetServers(ctx context.Context, in *GetServersRequest, opts ...grpc.CallOption) (*GetServersResponse, error) {
+func (c *lBResolverHelperClient) GetServers(ctx context.Context, in *GetServersRequest, opts ...grpc.CallOption) (*GetServersResponse, error) {
 	out := new(GetServersResponse)
-	err := c.cc.Invoke(ctx, "/streaming.v1.ResolverHelper/GetServers", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/streaming.v1.LBResolverHelper/GetServers", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-// ResolverHelperServer is the server API for ResolverHelper service.
-// All implementations must embed UnimplementedResolverHelperServer
+// LBResolverHelperServer is the server API for LBResolverHelper service.
+// All implementations must embed UnimplementedLBResolverHelperServer
 // for forward compatibility
-type ResolverHelperServer interface {
+type LBResolverHelperServer interface {
 	GetServers(context.Context, *GetServersRequest) (*GetServersResponse, error)
-	mustEmbedUnimplementedResolverHelperServer()
+	mustEmbedUnimplementedLBResolverHelperServer()
 }
 
-// UnimplementedResolverHelperServer must be embedded to have forward compatible implementations.
-type UnimplementedResolverHelperServer struct {
+// UnimplementedLBResolverHelperServer must be embedded to have forward compatible implementations.
+type UnimplementedLBResolverHelperServer struct {
 }
 
-func (UnimplementedResolverHelperServer) GetServers(context.Context, *GetServersRequest) (*GetServersResponse, error) {
+func (UnimplementedLBResolverHelperServer) GetServers(context.Context, *GetServersRequest) (*GetServersResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetServers not implemented")
 }
-func (UnimplementedResolverHelperServer) mustEmbedUnimplementedResolverHelperServer() {}
+func (UnimplementedLBResolverHelperServer) mustEmbedUnimplementedLBResolverHelperServer() {}
 
-// UnsafeResolverHelperServer may be embedded to opt out of forward compatibility for this service.
-// Use of this interface is not recommended, as added methods to ResolverHelperServer will
+// UnsafeLBResolverHelperServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to LBResolverHelperServer will
 // result in compilation errors.
-type UnsafeResolverHelperServer interface {
-	mustEmbedUnimplementedResolverHelperServer()
+type UnsafeLBResolverHelperServer interface {
+	mustEmbedUnimplementedLBResolverHelperServer()
 }
 
-func RegisterResolverHelperServer(s *grpc.Server, srv ResolverHelperServer) {
-	s.RegisterService(&_ResolverHelper_serviceDesc, srv)
+func RegisterLBResolverHelperServer(s *grpc.Server, srv LBResolverHelperServer) {
+	s.RegisterService(&_LBResolverHelper_serviceDesc, srv)
 }
 
-func _ResolverHelper_GetServers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _LBResolverHelper_GetServers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetServersRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ResolverHelperServer).GetServers(ctx, in)
+		return srv.(LBResolverHelperServer).GetServers(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/streaming.v1.ResolverHelper/GetServers",
+		FullMethod: "/streaming.v1.LBResolverHelper/GetServers",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ResolverHelperServer).GetServers(ctx, req.(*GetServersRequest))
+		return srv.(LBResolverHelperServer).GetServers(ctx, req.(*GetServersRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-var _ResolverHelper_serviceDesc = grpc.ServiceDesc{
-	ServiceName: "streaming.v1.ResolverHelper",
-	HandlerType: (*ResolverHelperServer)(nil),
+var _LBResolverHelper_serviceDesc = grpc.ServiceDesc{
+	ServiceName: "streaming.v1.LBResolverHelper",
+	HandlerType: (*LBResolverHelperServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
 			MethodName: "GetServers",
-			Handler:    _ResolverHelper_GetServers_Handler,
+			Handler:    _LBResolverHelper_GetServers_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "api/streaming/v1/streaming.proto",
+}
+
+// FollowerResolverHelperClient is the client API for FollowerResolverHelper service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type FollowerResolverHelperClient interface {
+	GetFollowers(ctx context.Context, in *GetFollowersRequest, opts ...grpc.CallOption) (*GetFollowersResponse, error)
+}
+
+type followerResolverHelperClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewFollowerResolverHelperClient(cc grpc.ClientConnInterface) FollowerResolverHelperClient {
+	return &followerResolverHelperClient{cc}
+}
+
+func (c *followerResolverHelperClient) GetFollowers(ctx context.Context, in *GetFollowersRequest, opts ...grpc.CallOption) (*GetFollowersResponse, error) {
+	out := new(GetFollowersResponse)
+	err := c.cc.Invoke(ctx, "/streaming.v1.FollowerResolverHelper/GetFollowers", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// FollowerResolverHelperServer is the server API for FollowerResolverHelper service.
+// All implementations must embed UnimplementedFollowerResolverHelperServer
+// for forward compatibility
+type FollowerResolverHelperServer interface {
+	GetFollowers(context.Context, *GetFollowersRequest) (*GetFollowersResponse, error)
+	mustEmbedUnimplementedFollowerResolverHelperServer()
+}
+
+// UnimplementedFollowerResolverHelperServer must be embedded to have forward compatible implementations.
+type UnimplementedFollowerResolverHelperServer struct {
+}
+
+func (UnimplementedFollowerResolverHelperServer) GetFollowers(context.Context, *GetFollowersRequest) (*GetFollowersResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetFollowers not implemented")
+}
+func (UnimplementedFollowerResolverHelperServer) mustEmbedUnimplementedFollowerResolverHelperServer() {
+}
+
+// UnsafeFollowerResolverHelperServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to FollowerResolverHelperServer will
+// result in compilation errors.
+type UnsafeFollowerResolverHelperServer interface {
+	mustEmbedUnimplementedFollowerResolverHelperServer()
+}
+
+func RegisterFollowerResolverHelperServer(s *grpc.Server, srv FollowerResolverHelperServer) {
+	s.RegisterService(&_FollowerResolverHelper_serviceDesc, srv)
+}
+
+func _FollowerResolverHelper_GetFollowers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetFollowersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FollowerResolverHelperServer).GetFollowers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/streaming.v1.FollowerResolverHelper/GetFollowers",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FollowerResolverHelperServer).GetFollowers(ctx, req.(*GetFollowersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+var _FollowerResolverHelper_serviceDesc = grpc.ServiceDesc{
+	ServiceName: "streaming.v1.FollowerResolverHelper",
+	HandlerType: (*FollowerResolverHelperServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "GetFollowers",
+			Handler:    _FollowerResolverHelper_GetFollowers_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

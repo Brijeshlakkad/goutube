@@ -2,9 +2,9 @@ package goutube
 
 import (
 	"fmt"
+	"github.com/Brijeshlakkad/ring"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/attributes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/resolver"
 	"google.golang.org/grpc/serviceconfig"
@@ -104,32 +104,46 @@ func setupTestDistributedLocus(t *testing.T, followerCount int) (*DistributedLoc
 	distributedLoci_Leader, teardown_Leader := setupTestDistributedLoci(t,
 		LeaderRule,
 		fmt.Sprintf("distributed-locus-leader"),
-		[]string{},
-		true) // Will be part of the distributedLoci_Leader_1's ring.
+		&ring.Config{MemberType: ring.ShardMember}) // Will be part of the distributedLoci_Leader_1's ring.
 	teardowns = append(teardowns, teardown_Leader)
-
-	expectedServers = append(expectedServers, resolver.Address{
-		Addr:       distributedLoci_Leader.config.Distributed.StreamLayer.Addr().String(),
-		Attributes: attributes.New("is_leader", false),
-	})
 
 	for i := 0; i < followerCount; i++ {
 		distributedLoci_Follower, teardown_Follower := setupTestDistributedLoci(t,
 			FollowerRule,
 			fmt.Sprintf("distributed-locus-follower-2-%d", i),
-			[]string{},
-			false)
+			nil)
 		teardowns = append(teardowns, teardown_Follower)
 
 		// Join replication cluster
 		err := distributedLoci_Leader.Join(distributedLoci_Follower.config.Distributed.StreamLayer.Addr().String(), distributedLoci_Follower.config.Distributed.Rule)
 		require.NoError(t, err)
-
-		expectedServers = append(expectedServers, resolver.Address{
-			Addr:       distributedLoci_Follower.config.Distributed.StreamLayer.Addr().String(),
-			Attributes: attributes.New("is_leader", false),
-		})
 	}
+
+	loadbalancer_1, teardown_loadbalancer_1 := setupTestDistributedLoci(t,
+		FollowerRule,
+		fmt.Sprintf("loadbalancer-1"),
+		&ring.Config{
+			MemberType:    ring.LoadBalancerMember,
+			SeedAddresses: []string{distributedLoci_Leader.ring.BindAddr},
+		})
+	teardowns = append(teardowns, teardown_loadbalancer_1)
+
+	expectedServers = append(expectedServers, resolver.Address{
+		Addr: loadbalancer_1.config.Distributed.StreamLayer.Addr().String(),
+	})
+
+	loadbalancer_2, teardown_loadbalancer_2 := setupTestDistributedLoci(t,
+		FollowerRule,
+		fmt.Sprintf("loadbalancer-2"),
+		&ring.Config{
+			MemberType:    ring.LoadBalancerMember,
+			SeedAddresses: []string{distributedLoci_Leader.ring.BindAddr},
+		})
+	teardowns = append(teardowns, teardown_loadbalancer_2)
+
+	expectedServers = append(expectedServers, resolver.Address{
+		Addr: loadbalancer_2.config.Distributed.StreamLayer.Addr().String(),
+	})
 
 	return distributedLoci_Leader, resolver.State{
 			Addresses: expectedServers,

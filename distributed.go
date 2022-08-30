@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"crypto/tls"
 	"fmt"
-	"github.com/Brijeshlakkad/ring"
 	"net"
 	"sync"
 	"time"
+
+	"github.com/Brijeshlakkad/ring"
 
 	streaming_api "github.com/Brijeshlakkad/goutube/api/streaming/v1"
 	"github.com/Brijeshlakkad/goutube/pointcron"
@@ -98,7 +99,7 @@ func (d *DistributedLoci) GetPoints() []string {
 	return d.locus.GetPoints()
 }
 
-func (d *DistributedLoci) Append(record *streaming_api.ProduceRequest) (pos uint64, err error) {
+func (d *DistributedLoci) Append(record *streaming_api.ProduceRequest) (uint64, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -190,46 +191,34 @@ func (d *DistributedLoci) canArcJoin(rule ParticipationRule) bool {
 		(rule == FollowerRule || rule == LeaderFollowerRule)
 }
 
-func (d *DistributedLoci) GetServers(objectKey string) ([]*streaming_api.Server, error) {
+func (d *DistributedLoci) GetServers(req *streaming_api.GetServersRequest) ([]*streaming_api.Server, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
-	thisShouldHandle := true
+	var servers []*streaming_api.Server
+
+	serverList := d.ring.GetLoadBalancers()
+
+	for _, serverAddr := range serverList {
+		servers = append(servers, &streaming_api.Server{
+			RpcAddr: serverAddr,
+		})
+	}
+	return servers, nil
+}
+
+func (d *DistributedLoci) GetFollowers(req *streaming_api.GetFollowersRequest) ([]*streaming_api.Server, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
 
 	var servers []*streaming_api.Server
-	var serverList []Server
-	var peerAddress string
 
-	objectServer, found := d.ring.GetNode(objectKey)
-	if found {
-		peerAddress = objectServer.(string)
-		if peerAddress != d.config.Distributed.BindAddress {
-			thisShouldHandle = false
-		}
-	} else {
-		peerAddress = d.config.Distributed.BindAddress
-	}
-
-	if thisShouldHandle {
-		// This server should handle this object.
-		serverList = d.arc.GetFollowers()
-	} else {
-		var err error
-		serverList, err = d.arc.getPeerFollowers(ServerAddress(peerAddress))
-		if err != nil {
-			return nil, err
-		}
-	}
+	serverList := d.arc.GetFollowers()
 
 	// Include the leader as well.
-	servers = append(servers, &streaming_api.Server{
-		RpcAddr:  d.config.Distributed.BindAddress,
-		IsLeader: true,
-	})
 	for _, server := range serverList {
 		servers = append(servers, &streaming_api.Server{
-			RpcAddr:  string(server.Address),
-			IsLeader: false,
+			RpcAddr: string(server.Address),
 		})
 	}
 	return servers, nil

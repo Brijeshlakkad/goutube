@@ -16,10 +16,10 @@ import (
 )
 
 func TestDistributedLoci_Create_Append_Read(t *testing.T) {
-	distributedLoci_Leader, teardown_Leader := setupTestDistributedLoci(t, LeaderRule, "distributed-locus-0", []string{}, true)
+	distributedLoci_Leader, teardown_Leader := setupTestDistributedLoci(t, LeaderRule, "distributed-locus-0", &ring.Config{MemberType: ring.ShardMember})
 	defer teardown_Leader()
 
-	distributedLoci_Follower, teardown_Follower := setupTestDistributedLoci(t, FollowerRule, "distributed-locus-1", []string{}, false)
+	distributedLoci_Follower, teardown_Follower := setupTestDistributedLoci(t, FollowerRule, "distributed-locus-1", nil)
 	defer teardown_Follower()
 
 	err := distributedLoci_Leader.Join(distributedLoci_Follower.config.Distributed.StreamLayer.Addr().String(), distributedLoci_Follower.config.Distributed.Rule)
@@ -28,7 +28,7 @@ func TestDistributedLoci_Create_Append_Read(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		data := []byte(fmt.Sprintf("Test data line %d", i))
 		record := &streaming_v1.ProduceRequest{
-			Point: pointId,
+			Point: testPointId,
 			Frame: data,
 		}
 		_, err := distributedLoci_Leader.Append(record)
@@ -41,7 +41,7 @@ func TestDistributedLoci_Create_Append_Read(t *testing.T) {
 	var pos uint64
 	for i := uint64(0); i < 10; i++ {
 		data := []byte(fmt.Sprintf("Test data line %d", i))
-		read, err := distributedLoci_Follower.Read(pointId, pos)
+		read, err := distributedLoci_Follower.Read(testPointId, pos)
 		require.NoError(t, err)
 		require.Equal(t, data, read)
 		pos += uint64(len(data)) + lenWidth
@@ -59,13 +59,10 @@ func TestDistributedLoci_ParticipationRule(t *testing.T) {
 	}()
 
 	for i := 0; i < len(rules); i++ {
-		distributedLoci_Leader, teardown_Leader := setupTestDistributedLoci(t, LeaderRule, "distributed-locus-0", []string{},
-			true)
+		distributedLoci_Leader, teardown_Leader := setupTestDistributedLoci(t, LeaderRule, "distributed-locus-0", &ring.Config{MemberType: ring.ShardMember})
 		teardowns = append(teardowns, teardown_Leader)
 
-		distributedLoci_Follower, teardown_Follower := setupTestDistributedLoci(t, rules[i], "distributed-locus-1",
-			[]string{},
-			false)
+		distributedLoci_Follower, teardown_Follower := setupTestDistributedLoci(t, rules[i], "distributed-locus-1", nil)
 		teardowns = append(teardowns, teardown_Follower)
 
 		err := distributedLoci_Leader.Join(distributedLoci_Follower.config.Distributed.StreamLayer.Addr().String(), distributedLoci_Follower.config.Distributed.Rule)
@@ -74,7 +71,7 @@ func TestDistributedLoci_ParticipationRule(t *testing.T) {
 		for i := 0; i < 10; i++ {
 			data := []byte(fmt.Sprintf("Test data line %d", i))
 			record := &streaming_v1.ProduceRequest{
-				Point: pointId,
+				Point: testPointId,
 				Frame: data,
 			}
 			_, err := distributedLoci_Leader.Append(record)
@@ -85,7 +82,7 @@ func TestDistributedLoci_ParticipationRule(t *testing.T) {
 		time.Sleep(5 * time.Second)
 
 		var pos uint64
-		_, err = distributedLoci_Follower.Read(pointId, pos)
+		_, err = distributedLoci_Follower.Read(testPointId, pos)
 		if rules[i] == StandaloneLeaderRule {
 			require.Error(t, err)
 		} else if rules[i] == LeaderRule {
@@ -99,7 +96,10 @@ func TestDistributedLoci_ParticipationRule(t *testing.T) {
 }
 
 func TestDistributedLoci_GetServers(t *testing.T) {
-	distributedLoci_Leader, teardown_Leader := setupTestDistributedLoci(t, LeaderRule, "distributed-locus-0", []string{}, true)
+	distributedLoci_Leader, teardown_Leader := setupTestDistributedLoci(t,
+		LeaderRule,
+		"distributed-locus-leader-1",
+		&ring.Config{MemberType: ring.ShardMember})
 	defer teardown_Leader()
 
 	var teardowns []func()
@@ -113,17 +113,28 @@ func TestDistributedLoci_GetServers(t *testing.T) {
 		distributedLoci_Follower, teardown_Follower := setupTestDistributedLoci(t,
 			FollowerRule,
 			fmt.Sprintf("distributed-locus-follower-%d", i),
-			[]string{},
-			false)
+			nil)
 		teardowns = append(teardowns, teardown_Follower)
 		err := distributedLoci_Leader.Join(distributedLoci_Follower.config.Distributed.StreamLayer.Addr().String(), distributedLoci_Follower.config.Distributed.Rule)
 		require.NoError(t, err)
 	}
 
-	servers, err := distributedLoci_Leader.GetServers("example-key")
+	_, teardown_loadBalancer_1 := setupTestDistributedLoci(t,
+		LeaderRule,
+		"loadbalancer-locus-1",
+		&ring.Config{MemberType: ring.LoadBalancerMember, SeedAddresses: []string{distributedLoci_Leader.ring.BindAddr}}) // Will be part of the distributedLoci_Leader_1's ring.
+	defer teardown_loadBalancer_1()
+
+	_, teardown_loadBalancer_2 := setupTestDistributedLoci(t,
+		LeaderRule,
+		"loadbalancer-locus-2",
+		&ring.Config{MemberType: ring.LoadBalancerMember, SeedAddresses: []string{distributedLoci_Leader.ring.BindAddr}}) // Will be part of the distributedLoci_Leader_1's ring.
+	defer teardown_loadBalancer_2()
+
+	servers, err := distributedLoci_Leader.GetServers(nil)
 	require.NoError(t, err)
 
-	require.Equal(t, followerCount+1, len(servers))
+	require.Equal(t, 2, len(servers))
 }
 
 func TestDistributedLoci_GetPeerServers(t *testing.T) {
@@ -137,8 +148,7 @@ func TestDistributedLoci_GetPeerServers(t *testing.T) {
 	distributedLoci_Leader_1, teardown_Leader_1 := setupTestDistributedLoci(t,
 		LeaderRule,
 		"distributed-locus-leader-1",
-		[]string{},
-		true)
+		&ring.Config{MemberType: ring.ShardMember})
 	defer teardown_Leader_1()
 
 	followerCount_1 := 3
@@ -146,8 +156,7 @@ func TestDistributedLoci_GetPeerServers(t *testing.T) {
 		distributedLoci_Follower, teardown_Follower := setupTestDistributedLoci(t,
 			FollowerRule,
 			fmt.Sprintf("distributed-locus-follower-1-%d", i),
-			[]string{},
-			false)
+			nil)
 		teardowns = append(teardowns, teardown_Follower)
 
 		err := distributedLoci_Leader_1.Join(distributedLoci_Follower.config.Distributed.StreamLayer.Addr().String(), distributedLoci_Follower.config.Distributed.Rule)
@@ -157,8 +166,7 @@ func TestDistributedLoci_GetPeerServers(t *testing.T) {
 	distributedLoci_Leader_2, teardown_Leader_2 := setupTestDistributedLoci(t,
 		LeaderRule,
 		"distributed-locus-leader-2",
-		[]string{distributedLoci_Leader_1.ring.BindAddr},
-		true) // Will be part of the distributedLoci_Leader_1's ring.
+		&ring.Config{MemberType: ring.ShardMember, SeedAddresses: []string{distributedLoci_Leader_1.ring.BindAddr}}) // Will be part of the distributedLoci_Leader_1's ring.
 	defer teardown_Leader_2()
 
 	followerCount_2 := 4
@@ -166,13 +174,18 @@ func TestDistributedLoci_GetPeerServers(t *testing.T) {
 		distributedLoci_Follower, teardown_Follower := setupTestDistributedLoci(t,
 			FollowerRule,
 			fmt.Sprintf("distributed-locus-follower-2-%d", i),
-			[]string{},
-			false)
+			nil)
 		teardowns = append(teardowns, teardown_Follower)
 
 		err := distributedLoci_Leader_2.Join(distributedLoci_Follower.config.Distributed.StreamLayer.Addr().String(), distributedLoci_Follower.config.Distributed.Rule)
 		require.NoError(t, err)
 	}
+
+	_, teardown_loadBalancer_1 := setupTestDistributedLoci(t,
+		LeaderRule,
+		"loadbalancer-locus-1",
+		&ring.Config{MemberType: ring.LoadBalancerMember, SeedAddresses: []string{distributedLoci_Leader_1.ring.BindAddr, distributedLoci_Leader_2.ring.BindAddr}}) // Will be part of the distributedLoci_Leader_1's ring.
+	defer teardown_loadBalancer_1()
 
 	objectKey := "example-key"
 
@@ -186,24 +199,24 @@ func TestDistributedLoci_GetPeerServers(t *testing.T) {
 	require.NoError(t, err)
 
 	if responsibleServer == leader_1_RPCAddr {
-		// If the leader 1 is responsible for objectKey, then request leader 2 to get its followers.
-		servers, err := distributedLoci_Leader_2.GetServers(objectKey)
+		// If the leader 1 is responsible for objectKey, then request leader 2 to get its loadbalancers.
+		servers, err := distributedLoci_Leader_2.GetServers(nil)
 		require.NoError(t, err)
-		require.Equal(t, followerCount_1+1, len(servers))
+		require.Equal(t, 1, len(servers))
 	} else if responsibleServer == leader_2_RPCAddr {
-		// If the leader 2 is responsible for objectKey, then request leader 1 to get its followers.
-		servers, err := distributedLoci_Leader_1.GetServers(objectKey)
+		// If the leader 2 is responsible for objectKey, then request leader 1 to get its loadbalancers.
+		servers, err := distributedLoci_Leader_1.GetServers(nil)
 		require.NoError(t, err)
-		require.Equal(t, followerCount_2+1, len(servers))
+		require.Equal(t, 1, len(servers))
 	} else {
 		t.Fatalf("the responsible server for the object key: %s is not correct!", objectKey)
 	}
 }
 
-func setupTestDistributedLoci(t *testing.T, rule ParticipationRule,
+func setupTestDistributedLoci(t *testing.T,
+	rule ParticipationRule,
 	localId string,
-	seedAddresses []string,
-	ringMember bool,
+	ringConfig *ring.Config,
 ) (*DistributedLoci, func()) {
 	t.Helper()
 
@@ -220,7 +233,7 @@ func setupTestDistributedLoci(t *testing.T, rule ParticipationRule,
 		nil,
 		nil,
 	}
-	c.Distributed.BindAddress = listener.Addr().String()
+	c.Distributed.RPCAddress = listener.Addr().String()
 	c.Distributed.LocalID = localId
 	c.Distributed.Rule = rule
 	pointcronConfig := pointcron.Config{}
@@ -229,13 +242,34 @@ func setupTestDistributedLoci(t *testing.T, rule ParticipationRule,
 	c.Point.pointScheduler = pointcron.NewPointScheduler(pointcronConfig)
 	c.Point.pointScheduler.StartAsync()
 
-	if ringMember {
+	if ringConfig != nil {
+		nodeName := ringConfig.NodeName
+		if nodeName == "" {
+			nodeName = fmt.Sprintf("ring-%s", localId)
+		}
+		bindAddr := ringConfig.BindAddr
+		if bindAddr == "" {
+			bindAddr = fmt.Sprintf("localhost:%d", ports[1])
+		}
+		rpcPort := ringConfig.RPCPort
+		if rpcPort == 0 {
+			rpcPort = ports[0]
+		}
+		virtualNodeCount := ringConfig.VirtualNodeCount
+		if virtualNodeCount == 0 {
+			virtualNodeCount = 3
+		}
+		seedAddresses := ringConfig.SeedAddresses
+		if seedAddresses == nil {
+			seedAddresses = []string{}
+		}
 		ringInstance, err := ring.NewRing(ring.Config{
-			NodeName:         fmt.Sprintf("replication-%s", localId),
-			BindAddr:         fmt.Sprintf("localhost:%d", ports[1]),
-			RPCPort:          ports[0],
-			VirtualNodeCount: 3,
+			NodeName:         nodeName,
+			BindAddr:         bindAddr,
+			RPCPort:          rpcPort,
+			VirtualNodeCount: virtualNodeCount,
 			SeedAddresses:    seedAddresses,
+			MemberType:       ringConfig.MemberType,
 		})
 		require.NoError(t, err)
 		c.Distributed.Ring = ringInstance

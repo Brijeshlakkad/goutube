@@ -8,7 +8,6 @@ import (
 	streaming_api "github.com/Brijeshlakkad/goutube/api/streaming/v1"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/attributes"
 	"google.golang.org/grpc/resolver"
 	"google.golang.org/grpc/serviceconfig"
 )
@@ -67,7 +66,7 @@ var _ resolver.Resolver = (*Resolver)(nil)
 func (r *Resolver) ResolveNow(resolver.ResolveNowOptions) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	client := streaming_api.NewResolverHelperClient(r.resolverConn)
+	client := streaming_api.NewLBResolverHelperClient(r.resolverConn)
 	// Get cluster and then set on cc attributed
 	ctx := context.Background()
 	res, err := client.GetServers(ctx, &streaming_api.GetServersRequest{})
@@ -82,10 +81,6 @@ func (r *Resolver) ResolveNow(resolver.ResolveNowOptions) {
 	for _, server := range res.Servers {
 		addrs = append(addrs, resolver.Address{
 			Addr: server.RpcAddr,
-			Attributes: attributes.New(
-				"is_leader",
-				server.IsLeader,
-			),
 		})
 	}
 
