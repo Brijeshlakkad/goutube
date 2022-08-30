@@ -21,6 +21,18 @@ Streaming utility to build largely-scalable, highly available, fast, secure ***d
 - Kind tool to run a local Kubernetes cluster in Docker. (I am using: kind v0.14.0 go1.18.2 darwin/arm64)
 - Go 1.16+
 
+
+## Goutube Agent Configuration parameters
+| Parameters       | Type                                                                                                             | Usage                                                                                                                                                                                                      |
+|------------------|------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| BindAddr         | string                                                                                                           | The address that Ring will bind to for communication with other members on the ring. By default this is "0.0.0.0:7946". [Read more](https://www.serf.io/docs/agent/options.html#bind)                      |
+| RPCPort          | int                                                                                                              | The address that Ring will bind to for the member's RPC server. By default this is "127.0.0.1:7373", allowing only loopback connections. [Read more](https://www.serf.io/docs/agent/options.html#rpc-addr) |
+| NodeName         | string                                                                                                           | Unique node name to identify this member.                                                                                                                                                                  |
+| SeedAddresses    | []string                                                                                                         | Addresses of other members to join upon start up.                                                                                                                                                          |
+| VirtualNodeCount | int                                                                                                              | Number of virtual nodes to create on the ring for this member.                                                                                                                                             |
+| HashFunction     | [HashFunction](https://github.com/Brijeshlakkad/ring/blob/f6306cf287105f18f831db916ef01823ef867fd4/types.go#L10) | Hash function to calculate position of the server on the ring.                                                                                                                                             |
+| MemberType       | [MemberType](https://github.com/Brijeshlakkad/ring/blob/ff61485ce23d72714bfb67d7201dc42f4933afa1/types.go#L16)   | Type of the membership: 1. ShardMember 2. LoadBalancerMember.                                                                                                                                              |
+
 ### **Can I contribute to this project?**
 Feel free to create a PR, I’m more than happy to review and merge it.
 

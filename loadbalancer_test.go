@@ -5,15 +5,16 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
-	grpc_auth "github.com/grpc-ecosystem/go-grpc-middleware/auth"
-	"go.opencensus.io/plugin/ocgrpc"
 	"io"
 	"io/ioutil"
 	"net"
 	"os"
 	"testing"
 	"time"
+
+	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
+	grpc_auth "github.com/grpc-ecosystem/go-grpc-middleware/auth"
+	"go.opencensus.io/plugin/ocgrpc"
 
 	streaming_api "github.com/Brijeshlakkad/goutube/api/streaming/v1"
 	"github.com/Brijeshlakkad/ring"
@@ -427,6 +428,8 @@ func setupTestLoadBalancer(t *testing.T) (streaming_api.StreamingClient,
 	}
 	// END: setup the ring members
 
+	time.Sleep(3 * time.Second)
+
 	// START: setup the load balancer configuration
 	ports := dynaport.Get(2)
 
@@ -437,7 +440,7 @@ func setupTestLoadBalancer(t *testing.T) (streaming_api.StreamingClient,
 		BindAddr:         fmt.Sprintf("localhost:%d", ports[1]),
 		RPCPort:          ports[0],
 		VirtualNodeCount: 3,
-		SeedAddresses:    []string{distributedLoci_Leader_1.ring.BindAddr},
+		SeedAddresses:    []string{distributedLoci_Leader_1.ring.BindAddr, distributedLoci_Leader_2.ring.BindAddr},
 		MemberType:       ring.LoadBalancerMember,
 	})
 	require.NoError(t, err)
@@ -571,10 +574,6 @@ func setupTestStreamingServer(t *testing.T,
 	}
 	locusInstance, locusTeardown := setupTestDistributedLoci_LoadBalancer(t, rule, localId, ringConfig, lociLn, ports[0], serverTLSConfig, tlsConfig)
 
-	var memberType ring.MemberType
-	if ringConfig == nil {
-		memberType = ring.ShardMember
-	}
 	cfg := &ServerConfig{
 		StreamingConfig: &StreamingConfig{
 			Locus:      locusInstance,
@@ -584,7 +583,7 @@ func setupTestStreamingServer(t *testing.T,
 			GetServerer:   locusInstance,
 			GetFollowerer: locusInstance,
 		},
-		MemberType: memberType,
+		Rule: rule,
 	}
 
 	gRPCServer, err := NewServer(cfg, grpc.Creds(serverCreds))
@@ -663,6 +662,7 @@ func setupTestDistributedLoci_LoadBalancer(t *testing.T,
 			RPCPort:          rpcPort,
 			VirtualNodeCount: virtualNodeCount,
 			SeedAddresses:    seedAddresses,
+			MemberType:       ringConfig.MemberType,
 		})
 		require.NoError(t, err)
 		c.Distributed.Ring = ringInstance

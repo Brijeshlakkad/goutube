@@ -45,7 +45,6 @@ type AgentConfig struct {
 
 	LeaderAddresses []string          // Addresses of the servers which will set this server as one of its loadbalancers (for replication).
 	Rule            ParticipationRule // True, if this server takes part in the ring (peer-to-peer architecture) and/or replication.
-	MemberType      ring.MemberType
 }
 
 func (c AgentConfig) RPCAddr() (string, error) {
@@ -108,57 +107,27 @@ func (a *Agent) setupMux() error {
 	return nil
 }
 
-func (a *Agent) setupServer() error {
-	authorizer := newAuth(
-		a.ACLModelFile,
-		a.ACLPolicyFile,
-	)
-	serverConfig := &ServerConfig{
-		StreamingConfig: &StreamingConfig{
-			Locus:      a.loci,
-			Authorizer: authorizer,
-		},
-		ResolverHelperConfig: &ResolverHelperConfig{
-			GetServerer:   a.loci,
-			GetFollowerer: a.loci,
-		},
-		MemberType: a.MemberType,
-	}
-	var opts []grpc.ServerOption
-	if a.ServerTLSConfig != nil {
-		creds := credentials.NewTLS(a.ServerTLSConfig)
-		opts = append(opts, grpc.Creds(creds))
+func (a *Agent) setupRing() error {
+	memberType, found := toRingMemberType(a.Rule)
+	if !found {
+		return nil
 	}
 	var err error
-	a.server, err = NewServer(serverConfig, opts...)
-	if err != nil {
-		return err
-	}
-	grpcLn := a.mux.Match(cmux.Any())
-	go func() {
-		if err := a.server.Serve(grpcLn); err != nil {
-			_ = a.Shutdown()
-		}
-	}()
+	a.ring, err = ring.NewRing(ring.Config{
+		NodeName:         a.NodeName,
+		BindAddr:         a.BindAddr,
+		RPCPort:          a.RPCPort,
+		VirtualNodeCount: a.VirtualNodeCount,
+		SeedAddresses:    a.SeedAddresses,
+		MemberType:       memberType,
+	})
 	return err
 }
 
-func (a *Agent) setupRing() error {
-	if a.Rule == StandaloneLeaderRule || a.Rule == LeaderRule || a.Rule == LeaderFollowerRule {
-		var err error
-		a.ring, err = ring.NewRing(ring.Config{
-			NodeName:         a.NodeName,
-			BindAddr:         a.BindAddr,
-			RPCPort:          a.RPCPort,
-			VirtualNodeCount: a.VirtualNodeCount,
-			SeedAddresses:    a.SeedAddresses,
-		})
-		return err
-	}
-	return nil
-}
-
 func (a *Agent) setupLoci() error {
+	if !shouldImplementLoci(a.Rule) {
+		return nil
+	}
 	lociLn := a.mux.Match(func(reader io.Reader) bool {
 		b := make([]byte, 1)
 		if _, err := reader.Read(b); err != nil {
@@ -190,6 +159,9 @@ func (a *Agent) setupLoci() error {
 }
 
 func (a *Agent) setupReplicationCluster() error {
+	if !shouldImplementReplicationCluster(a.Rule) {
+		return nil
+	}
 	if a.Rule == LeaderRule || a.Rule == FollowerRule || a.Rule == LeaderFollowerRule {
 		rpcAddr, err := a.RPCAddr()
 		if err != nil {
@@ -213,6 +185,74 @@ func (a *Agent) setupReplicationCluster() error {
 	return nil
 }
 
+func (a *Agent) setupServer() error {
+	if shouldImplementLoadBalancer(a.Rule) {
+		authorizer := newAuth(
+			ACLModelFile,
+			ACLPolicyFile,
+		)
+
+		serverConfig := &loadbalancerConfig{
+			id:         a.NodeName,
+			ring:       a.ring,
+			Authorizer: authorizer,
+			MaxPool:    5,
+		}
+
+		var opts []grpc.ServerOption
+		if a.ServerTLSConfig != nil {
+			creds := credentials.NewTLS(a.ServerTLSConfig)
+			opts = append(opts, grpc.Creds(creds))
+		}
+		var err error
+		a.server, err = NewLoadBalancer(serverConfig, opts...)
+		if err != nil {
+			return err
+		}
+		grpcLn := a.mux.Match(cmux.Any())
+		go func() {
+			if err := a.server.Serve(grpcLn); err != nil {
+				_ = a.Shutdown()
+			}
+		}()
+		return err
+	} else if shouldImplementLoci(a.Rule) {
+		authorizer := newAuth(
+			a.ACLModelFile,
+			a.ACLPolicyFile,
+		)
+		serverConfig := &ServerConfig{
+			StreamingConfig: &StreamingConfig{
+				Locus:      a.loci,
+				Authorizer: authorizer,
+			},
+			ResolverHelperConfig: &ResolverHelperConfig{
+				GetServerer:   a.loci,
+				GetFollowerer: a.loci,
+			},
+			Rule: a.Rule,
+		}
+		var opts []grpc.ServerOption
+		if a.ServerTLSConfig != nil {
+			creds := credentials.NewTLS(a.ServerTLSConfig)
+			opts = append(opts, grpc.Creds(creds))
+		}
+		var err error
+		a.server, err = NewServer(serverConfig, opts...)
+		if err != nil {
+			return err
+		}
+		grpcLn := a.mux.Match(cmux.Any())
+		go func() {
+			if err := a.server.Serve(grpcLn); err != nil {
+				_ = a.Shutdown()
+			}
+		}()
+		return err
+	}
+	return nil
+}
+
 func (a *Agent) Shutdown() error {
 	a.shutdownLock.Lock()
 	defer a.shutdownLock.Unlock()
@@ -229,13 +269,15 @@ func (a *Agent) Shutdown() error {
 	if a.replicationCluster != nil {
 		shutdown = append(shutdown, a.replicationCluster.Leave)
 	}
+	if a.loci != nil {
+		shutdown = append(shutdown, a.loci.Shutdown)
+	}
 	shutdown = append(
 		shutdown,
 		func() error {
 			a.server.GracefulStop()
 			return nil
 		},
-		a.loci.Shutdown,
 	)
 	for _, fn := range shutdown {
 		if err := fn(); err != nil {

@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 
 	streaming_api "github.com/Brijeshlakkad/goutube/api/streaming/v1"
-	"github.com/Brijeshlakkad/ring"
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_auth "github.com/grpc-ecosystem/go-grpc-middleware/auth"
 	"go.opencensus.io/plugin/ocgrpc"
@@ -23,7 +22,7 @@ var (
 type ServerConfig struct {
 	StreamingConfig      *StreamingConfig
 	ResolverHelperConfig *ResolverHelperConfig
-	MemberType           ring.MemberType
+	Rule                 ParticipationRule
 }
 
 type ResolverHelperConfig struct {
@@ -114,7 +113,7 @@ func NewServer(config *ServerConfig, opts ...grpc.ServerOption) (*grpc.Server, e
 	}
 	// Register Follower Resolver Helper
 	// Only ShardMember members are implementing the GetFollowers method.
-	if config.ResolverHelperConfig != nil && config.MemberType == ring.ShardMember {
+	if config.ResolverHelperConfig != nil && shouldImplementFollowerResolver(config.Rule) {
 		fm, err := NewFollowerResolverHelper(config.ResolverHelperConfig)
 		if err != nil {
 			return nil, err
