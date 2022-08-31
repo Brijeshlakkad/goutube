@@ -107,16 +107,25 @@ func (a *Agent) setupMux() error {
 	return nil
 }
 
+const (
+	rpcAddressRingTag = "rpc_address"
+)
+
 func (a *Agent) setupRing() error {
 	memberType, found := toRingMemberType(a.Rule)
 	if !found {
 		return nil
 	}
-	var err error
+	rpcAddr, err := a.RPCAddr()
+	if err != nil {
+		return err
+	}
 	a.ring, err = ring.NewRing(ring.Config{
-		NodeName:         a.NodeName,
-		BindAddr:         a.BindAddr,
-		RPCPort:          a.RPCPort,
+		NodeName: a.NodeName,
+		BindAddr: a.BindAddr,
+		Tags: map[string]string{
+			rpcAddressRingTag: rpcAddr,
+		},
 		VirtualNodeCount: a.VirtualNodeCount,
 		SeedAddresses:    a.SeedAddresses,
 		MemberType:       memberType,

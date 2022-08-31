@@ -326,8 +326,11 @@ func TestAgent_ParticipationRule_LoadBalancerRule_Replication(t *testing.T) {
 	require.Equal(t, lines, i)
 
 	// Check with all the replicas of the responsible leader for the provided pointId.
-	responsibleLeaderAddr, found := agents[0].ring.GetNode(pointId)
+	responsibleLeaderTags, found := agents[0].ring.GetNode(pointId)
 	require.True(t, found)
+
+	responsibleLeaderAddr, ok := responsibleLeaderTags[rpcAddressRingTag]
+	require.True(t, ok)
 
 	var responsibleLeaderIndex int
 	for leaderIndex := range leaderFollowerMap {

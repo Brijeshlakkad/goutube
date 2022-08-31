@@ -189,14 +189,15 @@ func TestDistributedLoci_GetPeerServers(t *testing.T) {
 
 	objectKey := "example-key"
 
-	responsibleServer, found := distributedLoci_Leader_1.ring.GetNode(objectKey)
+	responsibleServerTags, found := distributedLoci_Leader_1.ring.GetNode(objectKey)
 	require.Equal(t, true, found)
 
-	leader_1_RPCAddr, err := distributedLoci_Leader_1.ring.RPCAddr()
-	require.NoError(t, err)
+	responsibleServer, ok := responsibleServerTags[rpcAddressRingTag]
+	require.True(t, ok)
 
-	leader_2_RPCAddr, err := distributedLoci_Leader_2.ring.RPCAddr()
-	require.NoError(t, err)
+	leader_1_RPCAddr := distributedLoci_Leader_1.config.Distributed.RPCAddress
+
+	leader_2_RPCAddr := distributedLoci_Leader_2.config.Distributed.RPCAddress
 
 	if responsibleServer == leader_1_RPCAddr {
 		// If the leader 1 is responsible for objectKey, then request leader 2 to get its loadbalancers.
@@ -224,7 +225,8 @@ func setupTestDistributedLoci(t *testing.T,
 	require.NoError(t, err)
 
 	ports := dynaport.Get(2)
-	listener, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", ports[0]))
+	rpcAddr := fmt.Sprintf("localhost:%d", ports[0])
+	listener, err := net.Listen("tcp", rpcAddr)
 	require.NoError(t, err)
 
 	c := Config{}
@@ -251,9 +253,8 @@ func setupTestDistributedLoci(t *testing.T,
 		if bindAddr == "" {
 			bindAddr = fmt.Sprintf("localhost:%d", ports[1])
 		}
-		rpcPort := ringConfig.RPCPort
-		if rpcPort == 0 {
-			rpcPort = ports[0]
+		tags := map[string]string{
+			rpcAddressRingTag: listener.Addr().String(),
 		}
 		virtualNodeCount := ringConfig.VirtualNodeCount
 		if virtualNodeCount == 0 {
@@ -266,7 +267,7 @@ func setupTestDistributedLoci(t *testing.T,
 		ringInstance, err := ring.NewRing(ring.Config{
 			NodeName:         nodeName,
 			BindAddr:         bindAddr,
-			RPCPort:          rpcPort,
+			Tags:             tags,
 			VirtualNodeCount: virtualNodeCount,
 			SeedAddresses:    seedAddresses,
 			MemberType:       ringConfig.MemberType,

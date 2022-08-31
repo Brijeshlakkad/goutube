@@ -3,7 +3,7 @@ module github.com/Brijeshlakkad/goutube
 go 1.16
 
 require (
-	github.com/Brijeshlakkad/ring v0.1.3
+	github.com/Brijeshlakkad/ring v0.1.6
 	github.com/armon/go-metrics v0.4.0 // indirect
 	github.com/casbin/casbin v1.9.1
 	github.com/go-redis/redis v6.15.9+incompatible

@@ -116,12 +116,12 @@ func (lb *loadBalancer) ProduceStream(stream streaming_api.Streaming_ProduceStre
 		return err
 	} else {
 		// This will return the rpc address of the leader node.
-		shardNodeRPCAddr, found := lb.ring.GetNode(req.Point)
+		leaderNodeTags, found := lb.ring.GetNode(req.Point)
 		if !found {
 			return ErrCannotHandleRequest
 		}
 
-		conn, err = lb.getConn(ServerAddress(shardNodeRPCAddr.(string)))
+		conn, err = lb.getConn(ServerAddress(leaderNodeTags[rpcAddressRingTag]))
 		if err != nil {
 			return err
 		}
@@ -176,12 +176,12 @@ func (lb *loadBalancer) ConsumeStream(req *streaming_api.ConsumeRequest, stream 
 	}
 
 	// This will return the rpc address of the leader node.
-	shardNodeRPCAddrI, found := lb.ring.GetNode(req.Point)
+	shardNodeTags, found := lb.ring.GetNode(req.Point)
 	if !found {
 		return ErrCannotHandleRequest
 	}
 
-	shardNodeRPCAddr := ServerAddress(shardNodeRPCAddrI.(string))
+	shardNodeRPCAddr := ServerAddress(shardNodeTags[rpcAddressRingTag])
 
 	leaderConn, err := lb.getConn(shardNodeRPCAddr)
 	if err != nil {

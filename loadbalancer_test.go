@@ -31,10 +31,13 @@ func TestLoadBalancer_ProduceStream_ConsumeStream(t *testing.T) {
 	defer teardown()
 
 	// Find the responsible server for this object.
-	nodeRPCAddr, found := ringInstance.GetNode(objectKey)
+	nodeTags, found := ringInstance.GetNode(objectKey)
 	require.True(t, found)
 
-	objNodeIP, err := net.ResolveTCPAddr("tcp", nodeRPCAddr.(string))
+	nodeRPCAddr, ok := nodeTags[rpcAddressRingTag]
+	require.True(t, ok)
+
+	objNodeIP, err := net.ResolveTCPAddr("tcp", nodeRPCAddr)
 	require.NoError(t, err)
 
 	var objLeader *testReplicationClusterMember
@@ -207,10 +210,14 @@ func TestLoadBalancer_ConsumeStream_Cache(t *testing.T) {
 
 	id := "load-balancer"
 
+	tags := map[string]string{
+		rpcAddressRingTag: fmt.Sprintf("localhost:%d", ports[0]),
+	}
+
 	ringInstance, err := ring.NewRing(ring.Config{
 		NodeName:         id,
 		BindAddr:         fmt.Sprintf("localhost:%d", ports[1]),
-		RPCPort:          ports[0],
+		Tags:             tags,
 		VirtualNodeCount: 3,
 		SeedAddresses:    []string{distributedLoci_Leader_1.ring.BindAddr},
 		MemberType:       ring.LoadBalancerMember,
@@ -435,10 +442,14 @@ func setupTestLoadBalancer(t *testing.T) (streaming_api.StreamingClient,
 
 	id := "load-balancer"
 
+	tags := map[string]string{
+		rpcAddressRingTag: fmt.Sprintf("localhost:%d", ports[0]),
+	}
+
 	ringInstance, err := ring.NewRing(ring.Config{
 		NodeName:         id,
 		BindAddr:         fmt.Sprintf("localhost:%d", ports[1]),
-		RPCPort:          ports[0],
+		Tags:             tags,
 		VirtualNodeCount: 3,
 		SeedAddresses:    []string{distributedLoci_Leader_1.ring.BindAddr, distributedLoci_Leader_2.ring.BindAddr},
 		MemberType:       ring.LoadBalancerMember,
@@ -568,10 +579,6 @@ func setupTestStreamingServer(t *testing.T,
 
 	serverListener := mux.Match(cmux.Any())
 
-	// set necessary configuration for ring.
-	if ringConfig != nil {
-		ringConfig.RPCPort = ports[0]
-	}
 	locusInstance, locusTeardown := setupTestDistributedLoci_LoadBalancer(t, rule, localId, ringConfig, lociLn, ports[0], serverTLSConfig, tlsConfig)
 
 	cfg := &ServerConfig{
@@ -656,10 +663,13 @@ func setupTestDistributedLoci_LoadBalancer(t *testing.T,
 		if seedAddresses == nil {
 			seedAddresses = []string{}
 		}
+		tags := map[string]string{
+			rpcAddressRingTag: fmt.Sprintf("localhost:%d", rpcPort),
+		}
 		ringInstance, err := ring.NewRing(ring.Config{
 			NodeName:         nodeName,
 			BindAddr:         bindAddr,
-			RPCPort:          rpcPort,
+			Tags:             tags,
 			VirtualNodeCount: virtualNodeCount,
 			SeedAddresses:    seedAddresses,
 			MemberType:       ringConfig.MemberType,
