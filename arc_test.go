@@ -10,7 +10,9 @@ import (
 
 	streaming_api "github.com/Brijeshlakkad/goutube/api/streaming/v1"
 	"github.com/Brijeshlakkad/goutube/pointcron"
+	"github.com/Brijeshlakkad/ring"
 	"github.com/stretchr/testify/require"
+	"github.com/travisjeffery/go-dynaport"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -155,6 +157,75 @@ func TestArc_Followers(t *testing.T) {
 	}
 }
 
+func TestArc_TransferResponsibility(t *testing.T) {
+	pointId1 := "2"
+	pointId2 := "6"
+
+	ports := dynaport.Get(2)
+
+	bindAddr_Peer_0 := fmt.Sprintf("localhost:%d", ports[0])
+
+	hashFunction := &testHashFunction{
+		cache: make(map[string]uint64),
+	}
+
+	_, locus_Peer_0, teardown_Peer_0 := setupTestArcRing(t, "1",
+		2,
+		hashFunction,
+		&ring.Config{
+			BindAddr:   bindAddr_Peer_0,
+			MemberType: ring.ShardMember,
+		})
+	defer teardown_Peer_0()
+
+	hashFunction.cache[pointId1] = 3
+	hashFunction.cache[pointId2] = 10
+
+	expectedOffset := uint64(0)
+	for i := 0; i < 10; i++ {
+		data := []byte(fmt.Sprintf("Test data line %d", i))
+		nextOffset, offset, err := locus_Peer_0.Append(pointId1, data)
+		require.NoError(t, err)
+		require.Equal(t, offset, expectedOffset)
+		expectedOffset = nextOffset
+	}
+
+	expectedOffset = uint64(0)
+	for i := 0; i < 10; i++ {
+		data := []byte(fmt.Sprintf("Test data line %d", i))
+		nextOffset, offset, err := locus_Peer_0.Append(pointId2, data)
+		require.NoError(t, err)
+		require.Equal(t, offset, expectedOffset)
+		expectedOffset = nextOffset
+	}
+
+	time.Sleep(1 * time.Second)
+
+	bindAddr_Peer_1 := fmt.Sprintf("localhost:%d", ports[1])
+	_, locus_Peer_1, teardown_Peer_1 := setupTestArcRing(t, "4",
+		7,
+		hashFunction,
+		&ring.Config{
+			BindAddr:      bindAddr_Peer_1,
+			MemberType:    ring.ShardMember,
+			SeedAddresses: []string{bindAddr_Peer_0},
+		})
+	defer teardown_Peer_1()
+
+	// Wait for replication to get completed!
+	time.Sleep(5 * time.Second)
+
+	var pos uint64
+	for i := uint64(0); i < 10; i++ {
+		data := []byte(fmt.Sprintf("Test data line %d", i))
+		nextOffset, read, err := locus_Peer_1.Read(pointId1, pos)
+		require.NoError(t, err)
+		require.Equal(t, data, read)
+		pos += uint64(len(data)) + lenWidth
+		require.Equal(t, pos, nextOffset)
+	}
+}
+
 func apply(arc *Arc, reqType RequestType, req proto.Message) (
 	interface{},
 	error,
@@ -194,4 +265,108 @@ func setupTestLocus(t *testing.T, dataDir string) *Locus {
 	require.NoError(t, err)
 
 	return locus
+}
+
+func setupTestArcRing(t *testing.T, localId string, hashValue uint64, thf *testHashFunction, ringConfig *ring.Config) (*Arc, *Locus, func()) {
+	t.Helper()
+
+	// Arc
+	ports := dynaport.Get(1)
+
+	rpcAddr := fmt.Sprintf("localhost:%d", ports[0])
+	streamLayer, err := newTCPStreamLayer(rpcAddr, nil)
+	require.NoError(t, err)
+
+	dataDir, err := ioutil.TempDir("", "arc-test")
+	require.NoError(t, err)
+
+	locusDir, err := createDirectory(dataDir, "locus")
+	require.NoError(t, err)
+
+	logDir, err := createDirectory(dataDir, "log")
+	require.NoError(t, err)
+
+	logStore, err := NewInMomoryPointStore(logDir)
+	require.NoError(t, err)
+
+	locus := setupTestLocus(t, locusDir)
+	fsmInstance := &fsm{
+		locus,
+	}
+
+	arc, err := NewArc(ArcConfig{
+		StreamLayer: streamLayer,
+		fsm:         fsmInstance,
+		store:       logStore,
+		Bundler:     &RequestBundler{},
+	})
+	require.NoError(t, err)
+
+	rc := &handleResponsibilityChange{
+		arc:   arc,
+		locus: locus,
+	}
+
+	if ringConfig != nil {
+		nodeName := ringConfig.NodeName
+		if nodeName == "" {
+			nodeName = fmt.Sprintf("ring-%s", localId)
+		}
+		bindAddr := ringConfig.BindAddr
+		if bindAddr == "" {
+			bindPorts := dynaport.Get(0)
+			bindAddr = fmt.Sprintf("localhost:%d", bindPorts[0])
+		}
+		tags := map[string]string{
+			rpcAddressRingTag: rpcAddr,
+		}
+		virtualNodeCount := ringConfig.VirtualNodeCount
+		if virtualNodeCount == 0 {
+			virtualNodeCount = 1
+		}
+		seedAddresses := ringConfig.SeedAddresses
+		if seedAddresses == nil {
+			seedAddresses = []string{}
+		}
+		//thf.cache[nodeName] = hashValue
+		ringInstance, err := ring.NewRing(ring.Config{
+			NodeName:         nodeName,
+			BindAddr:         bindAddr,
+			Tags:             tags,
+			VirtualNodeCount: virtualNodeCount,
+			SeedAddresses:    seedAddresses,
+			MemberType:       ringConfig.MemberType,
+			//HashFunction:     thf,
+			Timeout: 20 * time.Second,
+		})
+		require.NoError(t, err)
+
+		ringInstance.AddResponsibilityChangeListener(localId, rc)
+	}
+
+	return arc, locus, func() {
+		os.RemoveAll(dataDir)
+	}
+}
+
+type testHashFunction struct {
+	counter uint64
+	cache   map[string]uint64
+}
+
+func (hf *testHashFunction) Hash(key string) uint64 {
+	if _, ok := hf.cache[key]; ok {
+		return hf.cache[key]
+	}
+	hf.counter += 1
+	return hf.counter
+}
+
+type handleResponsibilityChange struct {
+	arc   *Arc
+	locus *Locus
+}
+
+func (rc *handleResponsibilityChange) OnChange(batch []ring.ShardResponsibility) {
+	rc.arc.onResponsibilityChange(batch, rc.locus.GetPoints())
 }

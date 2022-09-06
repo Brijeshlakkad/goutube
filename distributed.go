@@ -8,10 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Brijeshlakkad/ring"
-
 	streaming_api "github.com/Brijeshlakkad/goutube/api/streaming/v1"
 	"github.com/Brijeshlakkad/goutube/pointcron"
+	"github.com/Brijeshlakkad/ring"
 	"github.com/hashicorp/go-hclog"
 
 	"google.golang.org/protobuf/proto"
@@ -145,6 +144,12 @@ func (d *DistributedLoci) ClosePoint(pointId string) error {
 	defer d.mu.Unlock()
 
 	return d.locus.Close(pointId)
+}
+
+// OnChange allows to get notified when new server joins the ring at the position next on the ring to this server.
+// Hence, this server needs to send off points that should not be handled by this server anymore.
+func (d *DistributedLoci) OnChange(batch []ring.ShardResponsibility) {
+	d.arc.onResponsibilityChange(batch, d.GetPoints())
 }
 
 func (d *DistributedLoci) Shutdown() error {

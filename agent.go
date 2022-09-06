@@ -164,6 +164,11 @@ func (a *Agent) setupLoci() error {
 
 	a.loci, err = NewDistributedLoci(a.DataDir, locusConfig)
 
+	if a.ring != nil {
+		// To get notified when this node's responsibility changes.
+		a.ring.AddResponsibilityChangeListener(a.NodeName, a.loci)
+	}
+
 	return err
 }
 
