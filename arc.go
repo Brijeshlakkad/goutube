@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Brijeshlakkad/ring"
 	"github.com/hashicorp/go-hclog"
 )
 
@@ -37,6 +38,8 @@ type Arc struct {
 	replicateStateLock sync.Mutex
 	Dir                string
 	logger             hclog.Logger
+
+	transferPointLocks map[string]*sync.Mutex
 }
 
 type ArcConfig struct {
@@ -89,7 +92,8 @@ func NewArc(config ArcConfig) (*Arc, error) {
 		arcState: &arcState{
 			replicateState: make(map[string]*Follower),
 		},
-		logger: logger,
+		logger:             logger,
+		transferPointLocks: make(map[string]*sync.Mutex),
 	}
 
 	go arc.runFSM()
@@ -253,4 +257,125 @@ func (state *arcState) GetFollowers() []Server {
 		servers = append(servers, server.peer)
 	}
 	return servers
+}
+
+func (arc *Arc) onResponsibilityChange(batch []ring.ShardResponsibility, keys []string) {
+	go func() {
+		// Transfer all responsibilities to the new node.
+		for _, responsibility := range batch {
+			arc.Transfer(&responsibility, keys)
+		}
+	}()
+}
+
+// Transfer transfers the responsibility of any point to the responsible new server due to resharding.
+func (arc *Arc) Transfer(rt *ring.ShardResponsibility, keys []string) {
+	ch := make(chan []*RecordRequest, 1)
+	peerAddress := rt.ResponsibleNodeTags()[rpcAddressRingTag]
+	pipeline, err := arc.transport.PrepareCommandTransport(ServerAddress(peerAddress))
+	if err != nil {
+		arc.logger.Error("failed to prepare command transport pipeline", "peer", peerAddress, "error", err)
+		return
+	}
+
+	go func() {
+		// Sends off the chuck to the responsible server (leader).
+	SENDER:
+		for {
+			select {
+			case entries, ok := <-ch:
+				if !ok {
+					break SENDER
+				}
+				req := &RecordEntriesRequest{
+					Entries: entries,
+				}
+
+				out := new(RecordEntriesResponse)
+				_, err = pipeline.SendRecordEntriesRequest(req, out)
+				if err != nil {
+					arc.logger.Error("failed to pipeline commands", "peer", peerAddress, "error", err)
+					return
+				}
+
+				// Wait for response
+				respCh := pipeline.Consumer()
+				select {
+				case promise := <-respCh:
+					err = promise.Error()
+					if err != nil {
+						arc.logger.Error("server couldn't handle the command", "peer", peerAddress, "error", err)
+						return
+					}
+
+				}
+			default:
+			}
+		}
+	}()
+	for _, key := range keys {
+		if rt.Transfer(key) {
+			arc.reader(key, ch)
+		}
+	}
+}
+
+// reader reads the chuck into provided channel.
+func (arc *Arc) reader(key string, ch chan []*RecordRequest) {
+	unlockPoint := arc.lockPoint(key)
+	defer unlockPoint()
+
+	offset := uint64(0)
+	// Reads this point from the local to be sent over network.
+READER:
+	for {
+		var entries []*RecordRequest
+		var chunkSize uint64
+		fetchNext := false
+
+	CHUNK_READER:
+		for chunkSize < arc.MaxChunkSize {
+			var chunk []byte
+			nextOffset, chunk, err := arc.fsm.Read(key, offset)
+			if err != nil {
+				fetchNext = true
+				break CHUNK_READER
+			}
+			if offset == nextOffset {
+				fetchNext = true
+				break CHUNK_READER
+			}
+			if len(chunk) > 0 {
+				offset = nextOffset
+				data, err := arc.Bundler.Build(AppendRequestType, key, chunk)
+				if err != nil {
+					arc.logger.Error("failed to build request", "error", err)
+					return
+				}
+				entries = append(entries, &RecordRequest{
+					Data: data,
+				})
+
+				chunkSize += uint64(len(data))
+			} else {
+				fetchNext = true
+				break CHUNK_READER
+			}
+		}
+		ch <- entries
+		if fetchNext {
+			break READER
+		}
+	}
+}
+
+// lockPoint locks the provided key in transferPointLocks.
+func (arc *Arc) lockPoint(key string) func() {
+	_, ok := arc.transferPointLocks[key]
+	if !ok {
+		arc.transferPointLocks[key] = new(sync.Mutex)
+	}
+	arc.transferPointLocks[key].Lock()
+
+	return arc.transferPointLocks[key].Unlock
 }
