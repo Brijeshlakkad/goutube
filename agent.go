@@ -45,6 +45,8 @@ type AgentConfig struct {
 
 	LeaderAddresses []string          // Addresses of the servers which will set this server as one of its loadbalancers (for replication).
 	Rule            ParticipationRule // True, if this server takes part in the ring (peer-to-peer architecture) and/or replication.
+
+	MaxChunkSize uint64 // MaxChunkSize defines the size of the chunk that can be processed by this server.
 }
 
 func (c AgentConfig) RPCAddr() (string, error) {
@@ -151,6 +153,7 @@ func (a *Agent) setupLoci() error {
 	}
 
 	locusConfig := Config{}
+	locusConfig.Distributed.MaxChunkSize = a.MaxChunkSize
 	locusConfig.Distributed.StreamLayer = NewStreamLayer(
 		lociLn,
 		a.ServerTLSConfig,
@@ -289,7 +292,7 @@ func (a *Agent) Shutdown() error {
 	shutdown = append(
 		shutdown,
 		func() error {
-			a.server.GracefulStop()
+			a.server.Stop()
 			return nil
 		},
 	)

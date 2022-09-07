@@ -16,6 +16,10 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+var (
+	testChunkSize = uint64(256)
+)
+
 func TestArc_FSM(t *testing.T) {
 	streamLayer, err := newTCPStreamLayer("localhost:0", nil)
 	require.NoError(t, err)
@@ -36,7 +40,7 @@ func TestArc_FSM(t *testing.T) {
 	locus := setupTestLocus(t, locusDir)
 
 	fsm := &fsm{
-		locus,
+		locus: locus,
 	}
 
 	arc, err := NewArc(ArcConfig{
@@ -47,8 +51,10 @@ func TestArc_FSM(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	chunkSize := int(testChunkSize)
+	file := setupFile(t, chunkSize, testPointLines)
 	for i := 0; i < 10; i++ {
-		data := []byte(fmt.Sprintf("Test data line %d", i))
+		data := file[i*chunkSize : (i+1)*chunkSize]
 		resp, err := apply(arc, AppendRequestType, &streaming_api.ProduceRequest{Point: testPointId, Frame: data})
 		require.NoError(t, err)
 
@@ -57,12 +63,12 @@ func TestArc_FSM(t *testing.T) {
 	}
 
 	var pos uint64
-	for i := uint64(0); i < 10; i++ {
-		data := []byte(fmt.Sprintf("Test data line %d", i))
+	for i := 0; i < 10; i++ {
+		data := file[i*chunkSize : (i+1)*chunkSize]
 		nextOffset, read, err := locus.Read(testPointId, pos)
 		require.NoError(t, err)
 		require.Equal(t, data, read)
-		pos += uint64(len(data)) + lenWidth
+		pos += uint64(len(data))
 		require.Equal(t, pos, nextOffset)
 	}
 }
@@ -87,7 +93,7 @@ func TestArc_Followers(t *testing.T) {
 
 	locus_Leader := setupTestLocus(t, locusDir_Leader)
 	fsm_leader := &fsm{
-		locus_Leader,
+		locus: locus_Leader,
 	}
 
 	arc_leader, err := NewArc(ArcConfig{
@@ -117,7 +123,7 @@ func TestArc_Followers(t *testing.T) {
 
 	locus_Follower := setupTestLocus(t, locusDir_Follower)
 	fsm_Follower := &fsm{
-		locus_Follower,
+		locus: locus_Follower,
 	}
 
 	_, err = NewArc(ArcConfig{
@@ -134,8 +140,10 @@ func TestArc_Followers(t *testing.T) {
 
 	go arc_leader.replicate(followerState)
 
+	chunkSize := int(testChunkSize)
+	file := setupFile(t, chunkSize, testPointLines)
 	for i := 0; i < 10; i++ {
-		data := []byte(fmt.Sprintf("Test data line %d", i))
+		data := file[i*chunkSize : (i+1)*chunkSize]
 		resp, err := apply(arc_leader, AppendRequestType, &streaming_api.ProduceRequest{Point: testPointId, Frame: data})
 		require.NoError(t, err)
 
@@ -147,12 +155,12 @@ func TestArc_Followers(t *testing.T) {
 	time.Sleep(5 * time.Second)
 
 	var pos uint64
-	for i := uint64(0); i < 10; i++ {
-		data := []byte(fmt.Sprintf("Test data line %d", i))
+	for i := 0; i < 10; i++ {
+		data := file[i*chunkSize : (i+1)*chunkSize]
 		nextOffset, read, err := locus_Follower.Read(testPointId, pos)
 		require.NoError(t, err)
 		require.Equal(t, data, read)
-		pos += uint64(len(data)) + lenWidth
+		pos += uint64(len(data))
 		require.Equal(t, pos, nextOffset)
 	}
 }
@@ -165,25 +173,18 @@ func TestArc_TransferResponsibility(t *testing.T) {
 
 	bindAddr_Peer_0 := fmt.Sprintf("localhost:%d", ports[0])
 
-	hashFunction := &testHashFunction{
-		cache: make(map[string]uint64),
-	}
-
 	_, locus_Peer_0, teardown_Peer_0 := setupTestArcRing(t, "1",
-		2,
-		hashFunction,
 		&ring.Config{
 			BindAddr:   bindAddr_Peer_0,
 			MemberType: ring.ShardMember,
 		})
 	defer teardown_Peer_0()
 
-	hashFunction.cache[pointId1] = 3
-	hashFunction.cache[pointId2] = 10
-
 	expectedOffset := uint64(0)
+	chunkSize := int(testChunkSize)
+	file := setupFile(t, chunkSize, testPointLines)
 	for i := 0; i < 10; i++ {
-		data := []byte(fmt.Sprintf("Test data line %d", i))
+		data := file[i*chunkSize : (i+1)*chunkSize]
 		nextOffset, offset, err := locus_Peer_0.Append(pointId1, data)
 		require.NoError(t, err)
 		require.Equal(t, offset, expectedOffset)
@@ -192,7 +193,7 @@ func TestArc_TransferResponsibility(t *testing.T) {
 
 	expectedOffset = uint64(0)
 	for i := 0; i < 10; i++ {
-		data := []byte(fmt.Sprintf("Test data line %d", i))
+		data := file[i*chunkSize : (i+1)*chunkSize]
 		nextOffset, offset, err := locus_Peer_0.Append(pointId2, data)
 		require.NoError(t, err)
 		require.Equal(t, offset, expectedOffset)
@@ -203,8 +204,6 @@ func TestArc_TransferResponsibility(t *testing.T) {
 
 	bindAddr_Peer_1 := fmt.Sprintf("localhost:%d", ports[1])
 	_, locus_Peer_1, teardown_Peer_1 := setupTestArcRing(t, "4",
-		7,
-		hashFunction,
 		&ring.Config{
 			BindAddr:      bindAddr_Peer_1,
 			MemberType:    ring.ShardMember,
@@ -216,12 +215,12 @@ func TestArc_TransferResponsibility(t *testing.T) {
 	time.Sleep(5 * time.Second)
 
 	var pos uint64
-	for i := uint64(0); i < 10; i++ {
-		data := []byte(fmt.Sprintf("Test data line %d", i))
+	for i := 0; i < 10; i++ {
+		data := file[i*chunkSize : (i+1)*chunkSize]
 		nextOffset, read, err := locus_Peer_1.Read(pointId1, pos)
 		require.NoError(t, err)
 		require.Equal(t, data, read)
-		pos += uint64(len(data)) + lenWidth
+		pos += uint64(len(data))
 		require.Equal(t, pos, nextOffset)
 	}
 }
@@ -255,6 +254,7 @@ func apply(arc *Arc, reqType RequestType, req proto.Message) (
 
 func setupTestLocus(t *testing.T, dataDir string) *Locus {
 	c := Config{}
+	c.Distributed.MaxChunkSize = testChunkSize
 	pointcronConfig := pointcron.Config{}
 	pointcronConfig.CloseTimeout = 1 * time.Second
 	pointcronConfig.TickTime = time.Second
@@ -267,7 +267,7 @@ func setupTestLocus(t *testing.T, dataDir string) *Locus {
 	return locus
 }
 
-func setupTestArcRing(t *testing.T, localId string, hashValue uint64, thf *testHashFunction, ringConfig *ring.Config) (*Arc, *Locus, func()) {
+func setupTestArcRing(t *testing.T, localId string, ringConfig *ring.Config) (*Arc, *Locus, func()) {
 	t.Helper()
 
 	// Arc
@@ -291,7 +291,7 @@ func setupTestArcRing(t *testing.T, localId string, hashValue uint64, thf *testH
 
 	locus := setupTestLocus(t, locusDir)
 	fsmInstance := &fsm{
-		locus,
+		locus: locus,
 	}
 
 	arc, err := NewArc(ArcConfig{
@@ -347,19 +347,6 @@ func setupTestArcRing(t *testing.T, localId string, hashValue uint64, thf *testH
 	return arc, locus, func() {
 		os.RemoveAll(dataDir)
 	}
-}
-
-type testHashFunction struct {
-	counter uint64
-	cache   map[string]uint64
-}
-
-func (hf *testHashFunction) Hash(key string) uint64 {
-	if _, ok := hf.cache[key]; ok {
-		return hf.cache[key]
-	}
-	hf.counter += 1
-	return hf.counter
 }
 
 type handleResponsibilityChange struct {

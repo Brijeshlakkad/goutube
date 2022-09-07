@@ -11,7 +11,7 @@ import (
 
 var (
 	write = []byte("hello world")
-	width = uint64(len(write)) + lenWidth
+	width = uint64(len(write))
 )
 
 func TestPointAppendRead(t *testing.T) {
@@ -20,14 +20,16 @@ func TestPointAppendRead(t *testing.T) {
 	defer os.Remove(f.Name())
 	fi, err := os.Stat(f.Name())
 
-	p, err := newPoint(filepath.Dir(f.Name()), fi.Name())
+	config := Config{}
+	config.Distributed.MaxChunkSize = width
+	p, err := newPoint(filepath.Dir(f.Name()), fi.Name(), config)
 	require.NoError(t, err)
 
 	testAppend(t, p)
 	testRead(t, p)
 	testReadAt(t, p)
 
-	p, err = newPoint(filepath.Dir(f.Name()), fi.Name())
+	p, err = newPoint(filepath.Dir(f.Name()), fi.Name(), config)
 	require.NoError(t, err)
 	testRead(t, p)
 }
@@ -55,18 +57,11 @@ func testRead(t *testing.T, p *Point) {
 
 func testReadAt(t *testing.T, p *Point) {
 	t.Helper()
+	size := width
 	for i, off := uint64(1), uint64(0); i < 4; i++ {
-		b := make([]byte, lenWidth)
+		b := make([]byte, size)
 		n, err := p.ReadAt(b, off)
 		require.NoError(t, err)
-		require.Equal(t, lenWidth, n)
-		off += uint64(n)
-
-		size := enc.Uint64(b)
-		b = make([]byte, size)
-		n, err = p.ReadAt(b, off)
-		require.NoError(t, err)
-		require.Equal(t, write, b)
 		require.Equal(t, int(size), n)
 		off += uint64(n)
 	}
@@ -82,7 +77,9 @@ func TestPointOpenClose(t *testing.T) {
 	}(f.Name())
 	fi, err := os.Stat(f.Name())
 
-	p, err := newPoint(filepath.Dir(f.Name()), fi.Name())
+	config := Config{}
+	config.Distributed.MaxChunkSize = 256
+	p, err := newPoint(filepath.Dir(f.Name()), fi.Name(), config)
 	require.NoError(t, err)
 	_, _, err = p.Append(write)
 	require.NoError(t, err)

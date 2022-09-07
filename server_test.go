@@ -2,7 +2,6 @@ package goutube
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"net"
@@ -21,14 +20,18 @@ var (
 )
 
 func TestStreamingManager_ProduceStream_And_ConsumeStream(t *testing.T) {
-	client, _, _, teardown := setupTestServer(t, nil)
+	chunkSize := int(testChunkSize)
+	client, _, _, teardown := setupTestServer(t, nil, uint64(chunkSize))
 	defer teardown()
 
 	stream, err := client.ProduceStream(context.Background())
 	require.NoError(t, err)
 
+	file := setupFile(t, chunkSize, testPointLines)
+
 	for i := 0; i < testPointLines; i++ {
-		err := stream.Send(&streaming_api.ProduceRequest{Point: testPointId, Frame: []byte(fmt.Sprintln(i))})
+		b := file[i*chunkSize : (i+1)*chunkSize]
+		err := stream.Send(&streaming_api.ProduceRequest{Point: testPointId, Frame: b})
 		require.NoError(t, err)
 	}
 
@@ -37,7 +40,7 @@ func TestStreamingManager_ProduceStream_And_ConsumeStream(t *testing.T) {
 
 	require.Equal(t, 1, len(resp.Records))
 	require.Equal(t, testPointId, resp.Records[0].Point)
-	require.Equal(t, uint64(90), resp.Records[0].Offset)
+	require.Equal(t, uint64(2304), resp.Records[0].Offset)
 
 	// test consume stream
 	resStream, err := client.ConsumeStream(context.Background(), &streaming_api.ConsumeRequest{Point: testPointId})
@@ -53,12 +56,12 @@ func TestStreamingManager_ProduceStream_And_ConsumeStream(t *testing.T) {
 		}
 		require.NoError(t, err)
 		b := resp.GetFrame()
-		require.Equal(t, fmt.Sprintln(i), string(b))
+		require.Equal(t, file[i*chunkSize:(i+1)*chunkSize], b)
 	}
 	require.Equal(t, testPointLines, i)
 }
 
-func setupTestServer(t *testing.T, fn func()) (
+func setupTestServer(t *testing.T, fn func(), chunkSize uint64) (
 	streaming_api.StreamingClient,
 	streaming_api.LBResolverHelperClient,
 	*ServerConfig,
@@ -90,6 +93,7 @@ func setupTestServer(t *testing.T, fn func()) (
 
 	locusConfig := Config{}
 	locusConfig.Point.CloseTimeout = 10 * time.Second
+	locusConfig.Distributed.MaxChunkSize = chunkSize
 
 	lociLn, err := net.Listen("tcp", "localhost:0")
 	require.NoError(t, err)
@@ -144,4 +148,13 @@ func setupTestServer(t *testing.T, fn func()) (
 		l.Close()
 		locusInstance.Shutdown()
 	}
+}
+
+func setupFile(t *testing.T, size int, times int) []byte {
+	t.Helper()
+	file := make([]byte, size*times)
+	for i := 0; i < size*times; i++ {
+		file[i] = byte(i)
+	}
+	return file
 }

@@ -33,10 +33,8 @@ func (arc *Arc) runFSM() {
 		case cp = <-arc.applyCh:
 			key := applySingle(cp)
 
-			arc.replicateStateLock.Lock()
 			// Async notifying replicas.
 			arc.notifyFollowers(key)
-			arc.replicateStateLock.Unlock()
 		case <-arc.shutdownCh:
 			return
 		}
@@ -44,6 +42,8 @@ func (arc *Arc) runFSM() {
 }
 
 func (arc *Arc) notifyFollowers(key interface{}) {
+	arc.replicateStateLock.Lock()
+	defer arc.replicateStateLock.Unlock()
 	// Iterate through all the replicas to notify of the change.
 	for _, follower := range arc.replicateState {
 		asyncNotifyCh(follower.triggerCh, key)

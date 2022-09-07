@@ -13,8 +13,7 @@ import (
 )
 
 var (
-	testWrite   = []byte("hello world")
-	locusClient = "goutube-client"
+	testWrite = []byte("hello world")
 )
 
 func TestLocus(t *testing.T) {
@@ -36,6 +35,7 @@ func TestLocus(t *testing.T) {
 			defer os.RemoveAll(parentDir)
 
 			c := Config{}
+			c.Distributed.MaxChunkSize = uint64(len(testWrite))
 			pointcronConfig := pointcron.Config{}
 			pointcronConfig.CloseTimeout = 1 * time.Second
 			pointcronConfig.TickTime = time.Second

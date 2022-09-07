@@ -32,7 +32,7 @@ func (l *Locus) setup() error {
 		return err
 	}
 	for _, file := range files {
-		p, err := newPoint(l.locusDir, file.Name())
+		p, err := newPoint(l.locusDir, file.Name(), l.Config)
 		if err != nil {
 			return err
 		}
@@ -46,12 +46,11 @@ func (l *Locus) addPoint(pointId string) (*Point, error) {
 	if err != nil {
 		_, ok := err.(streaming_api.PointNotFound)
 		if ok {
-			p, err = newPoint(l.locusDir, pointId)
+			p, err = newPoint(l.locusDir, pointId, l.Config)
 			if err != nil {
 				return nil, err
 			}
 			l.points[p.pointId] = p
-
 			return p, nil
 		}
 		return nil, err
@@ -81,9 +80,14 @@ func (l *Locus) Append(pointId string, b []byte) (n uint64, pos uint64, err erro
 	defer l.mu.Unlock()
 
 	point, err := l.get(pointId)
-	if _, ok := err.(streaming_api.PointNotFound); ok {
-		point, err = l.addPoint(pointId)
+	if err != nil {
+		if _, ok := err.(streaming_api.PointNotFound); ok {
+			point, err = l.addPoint(pointId)
+		} else {
+			return 0, 0, nil
+		}
 	}
+
 	defer l.Config.Point.pointScheduler.Enqueue(point)
 
 	return point.Append(b)
@@ -115,6 +119,14 @@ func (l *Locus) ReadAt(pointId string, b []byte, off uint64) (int, error) {
 	return point.ReadAt(b, off)
 }
 
+func (l *Locus) GetMetadata(pointId string) (PointMetadata, error) {
+	point, err := l.get(pointId)
+	if err != nil {
+		return PointMetadata{}, err
+	}
+	return point.GetMetadata(), nil
+}
+
 func (l *Locus) Close(pointId string) error {
 	p, err := l.get(pointId)
 	if err != nil {
@@ -144,6 +156,7 @@ func (l *Locus) RemoveAll() error {
 	if err := l.CloseAll(); err != nil {
 		return err
 	}
+	l.points = make(map[string]*Point)
 	return os.RemoveAll(l.locusDir)
 }
 

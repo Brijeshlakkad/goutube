@@ -17,7 +17,13 @@ import (
 )
 
 var (
-	ErrCannotHandleRequest = errors.New("Couldn't handle the request")
+	ErrCannotHandleRequest          = errors.New("couldn't handle the request")
+	ErrMultiStreamMetadataCorrupted = errors.New("metadata cannot be verified")
+	ErrWorkersNotFound              = errors.New("workers not found")
+)
+
+const (
+	MultiStreamPercent = 50
 )
 
 // loadBalancer finds the responsible server for the provided request.
@@ -197,7 +203,7 @@ func (lb *loadBalancer) ConsumeStream(req *streaming_api.ConsumeRequest, stream 
 		var resp *streaming_api.GetFollowersResponse
 		resp, err = resolverHelperClient.GetFollowers(lb.streamCtx, &streaming_api.GetFollowersRequest{})
 		// cache the list of followers for this leader.
-		lb.cache[shardNodeRPCAddr] = NewFollowerCache(resp.Servers)
+		lb.cache[shardNodeRPCAddr] = NewFollowerCache(resp.Servers, MultiStreamPercent)
 	}
 
 	cache, _ := lb.cache[shardNodeRPCAddr]
@@ -245,6 +251,78 @@ CONSUME:
 		lb.returnConn(conn)
 	}
 	return nil
+}
+
+// GetMetadata fetches the metadata from the followers of the object replication cluster and verifies that these workers can serve the request.
+func (lb *loadBalancer) GetMetadata(ctx context.Context, req *streaming_api.MetadataRequest) (*streaming_api.MetadataResponse, error) {
+	// This will return the rpc address of the leader node.
+	shardNodeTags, found := lb.ring.GetNode(req.Point)
+	if !found {
+		return nil, ErrCannotHandleRequest
+	}
+
+	shardNodeRPCAddr := ServerAddress(shardNodeTags[rpcAddressRingTag])
+
+	leaderConn, err := lb.getConn(shardNodeRPCAddr)
+	if err != nil {
+		return nil, err
+	}
+
+	_, followerCached := lb.cache[shardNodeRPCAddr]
+
+	if !followerCached {
+		resolverHelperClient := streaming_api.NewFollowerResolverHelperClient(leaderConn)
+		var resp *streaming_api.GetFollowersResponse
+		resp, err = resolverHelperClient.GetFollowers(lb.streamCtx, &streaming_api.GetFollowersRequest{})
+		// cache the list of followers for this leader.
+		lb.cache[shardNodeRPCAddr] = NewFollowerCache(resp.Servers, MultiStreamPercent)
+	}
+
+	cache, _ := lb.cache[shardNodeRPCAddr]
+	followerAddresses, found := cache.getNextFollowers()
+	conns := make([]*grpc.ClientConn, len(followerAddresses))
+
+	// collects connections of the followers.
+	for i, followerAddress := range followerAddresses {
+		conns[i], err = lb.getConn(followerAddress)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	serverCount := len(conns)
+	// create clients and fetch metadata of the requested point
+	clients := make([]streaming_api.StreamingClient, serverCount)
+	var metadata *streaming_api.MetadataResponse = nil
+	metadataRequest := &streaming_api.MetadataRequest{
+		Point: req.Point,
+	}
+	for i := 0; i < serverCount; i++ {
+		clients[i] = streaming_api.NewStreamingClient(conns[i])
+		metadataResp, err := clients[i].GetMetadata(lb.streamCtx, metadataRequest)
+		if err != nil {
+			return nil, err
+		}
+		if i != 0 {
+			// compare metadata with other servers
+			if metadata.Size != metadataResp.Size {
+				return nil, ErrMultiStreamMetadataCorrupted
+			}
+		} else {
+			metadata = metadataResp
+		}
+	}
+
+	var workers []string
+	for _, conn := range conns {
+		workers = append(workers, conn.Target())
+	}
+
+	if len(workers) == 0 {
+		return nil, ErrWorkersNotFound
+	}
+	metadata.Workers = workers
+	return metadata, nil
 }
 
 // returnConn returns a connection back to the pool.
@@ -370,15 +448,18 @@ func (lb *loadBalancer) IsShutdown() bool {
 
 // followerCache stores the addresses of the followers and keeps the track of which follower should be requested next.
 type followerCache struct {
-	followers         map[uint8]ServerAddress
-	nextFollowerIndex uint8
-	lock              sync.Mutex
+	followers          map[uint8]ServerAddress
+	nextFollowerIndex  uint8
+	lock               sync.Mutex
+	multiStreamPercent int
 }
 
-func NewFollowerCache(followers []*streaming_api.Server) *followerCache {
+// NewFollowerCache caches the provided followers. multiStreamPercent is used to calculate the percent of followers that will be used to read stream parallel.
+func NewFollowerCache(followers []*streaming_api.Server, multiStreamPercent int) *followerCache {
 	fc := &followerCache{
-		followers:         make(map[uint8]ServerAddress),
-		nextFollowerIndex: 0,
+		followers:          make(map[uint8]ServerAddress),
+		nextFollowerIndex:  0,
+		multiStreamPercent: multiStreamPercent,
 	}
 
 	i := uint8(0)
@@ -390,6 +471,7 @@ func NewFollowerCache(followers []*streaming_api.Server) *followerCache {
 	return fc
 }
 
+// getNextFollower returns the next follower from the cache.
 func (f *followerCache) getNextFollower() (ServerAddress, bool) {
 	if len(f.followers) == 0 {
 		return "", false
@@ -402,4 +484,24 @@ func (f *followerCache) getNextFollower() (ServerAddress, bool) {
 	f.lock.Unlock()
 
 	return f.followers[curIndex], true
+}
+
+// getNextFollowers returns the number of followers to consume stream from multiple replicas.
+func (f *followerCache) getNextFollowers() ([]ServerAddress, bool) {
+	if len(f.followers) == 0 {
+		return nil, false
+	}
+
+	count := len(f.followers) * f.multiStreamPercent / 100
+
+	followers := make([]ServerAddress, count)
+	for i := 0; i < count; i++ {
+		follower, found := f.getNextFollower()
+		if !found {
+			return nil, false
+		}
+		followers[i] = follower
+	}
+
+	return followers, true
 }

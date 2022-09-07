@@ -5,54 +5,65 @@ package streaming.v1;
 option go_package = "github.com/Brijeshlakkad/api/streaming_v1";
 
 service Streaming {
-    rpc ConsumeStream(ConsumeRequest) returns (stream ConsumeResponse) {}
-    rpc ProduceStream(stream ProduceRequest) returns (ProduceResponse) {}
+  rpc ConsumeStream(ConsumeRequest) returns (stream ConsumeResponse) {}
+  rpc ProduceStream(stream ProduceRequest) returns (ProduceResponse) {}
+  rpc GetMetadata(MetadataRequest) returns (MetadataResponse) {}
 }
 
 message ConsumeRequest {
-    string point = 1;
+  string point = 1;
+  uint64 offset = 2;
 }
 
 message ConsumeResponse {
-    bytes frame = 1;
+  bytes frame = 1;
 }
 
 message ProduceRequest {
-    string point = 1;
-    bytes frame = 3;
+  string point = 1;
+  bytes frame = 3;
 }
 
 message ProduceResponse {
-    repeated Record records = 1;
+  repeated Record records = 1;
+}
+
+message MetadataRequest {
+  string point = 1;
+}
+
+message MetadataResponse {
+  repeated string workers = 1;
+  uint64 size = 2;
 }
 
 message Record {
-    string point = 1;
-    uint64 offset = 2;
+  string point = 1;
+  uint64 offset = 2;
 }
 
 service LBResolverHelper {
-    rpc GetServers(GetServersRequest) returns (GetServersResponse){}
+  rpc GetServers(GetServersRequest) returns (GetServersResponse){}
 }
 
 message GetServersRequest {
 }
 
 message GetServersResponse {
-    repeated Server servers = 1;
+  repeated Server servers = 1;
 }
 
 message Server {
-    string rpc_addr = 1;
+  string rpc_addr = 1;
 }
 
 service FollowerResolverHelper {
-    rpc GetFollowers(GetFollowersRequest) returns (GetFollowersResponse){}
+  rpc GetFollowers(GetFollowersRequest) returns (GetFollowersResponse){}
 }
 
 message GetFollowersRequest {
 }
 
 message GetFollowersResponse {
-    repeated Server servers = 1;
+  repeated Server servers = 1;
 }

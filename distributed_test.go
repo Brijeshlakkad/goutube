@@ -41,10 +41,12 @@ func TestDistributedLoci_Create_Append_Read(t *testing.T) {
 	var pos uint64
 	for i := uint64(0); i < 10; i++ {
 		data := []byte(fmt.Sprintf("Test data line %d", i))
-		read, err := distributedLoci_Follower.Read(testPointId, pos)
+		read := make([]byte, len(data))
+		n, err := distributedLoci_Follower.ReadAt(testPointId, read, pos)
 		require.NoError(t, err)
 		require.Equal(t, data, read)
-		pos += uint64(len(data)) + lenWidth
+		require.Equal(t, n, len(data))
+		pos += uint64(len(data))
 	}
 }
 
@@ -82,7 +84,7 @@ func TestDistributedLoci_ParticipationRule(t *testing.T) {
 		time.Sleep(5 * time.Second)
 
 		var pos uint64
-		_, err = distributedLoci_Follower.Read(testPointId, pos)
+		_, _, err = distributedLoci_Follower.Read(testPointId, pos)
 		if rules[i] == StandaloneLeaderRule {
 			require.Error(t, err)
 		} else if rules[i] == LeaderRule {
@@ -237,6 +239,7 @@ func setupTestDistributedLoci(t *testing.T,
 	}
 	c.Distributed.RPCAddress = listener.Addr().String()
 	c.Distributed.LocalID = localId
+	c.Distributed.MaxChunkSize = 256
 	c.Distributed.Rule = rule
 	pointcronConfig := pointcron.Config{}
 	pointcronConfig.CloseTimeout = 3 * time.Second
@@ -271,6 +274,7 @@ func setupTestDistributedLoci(t *testing.T,
 			VirtualNodeCount: virtualNodeCount,
 			SeedAddresses:    seedAddresses,
 			MemberType:       ringConfig.MemberType,
+			Timeout:          time.Second,
 		})
 		require.NoError(t, err)
 		c.Distributed.Ring = ringInstance

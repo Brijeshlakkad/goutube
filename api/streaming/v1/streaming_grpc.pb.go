@@ -19,6 +19,7 @@ const _ = grpc.SupportPackageIsVersion7
 type StreamingClient interface {
 	ConsumeStream(ctx context.Context, in *ConsumeRequest, opts ...grpc.CallOption) (Streaming_ConsumeStreamClient, error)
 	ProduceStream(ctx context.Context, opts ...grpc.CallOption) (Streaming_ProduceStreamClient, error)
+	GetMetadata(ctx context.Context, in *MetadataRequest, opts ...grpc.CallOption) (*MetadataResponse, error)
 }
 
 type streamingClient struct {
@@ -95,12 +96,22 @@ func (x *streamingProduceStreamClient) CloseAndRecv() (*ProduceResponse, error) 
 	return m, nil
 }
 
+func (c *streamingClient) GetMetadata(ctx context.Context, in *MetadataRequest, opts ...grpc.CallOption) (*MetadataResponse, error) {
+	out := new(MetadataResponse)
+	err := c.cc.Invoke(ctx, "/streaming.v1.Streaming/GetMetadata", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // StreamingServer is the server API for Streaming service.
 // All implementations must embed UnimplementedStreamingServer
 // for forward compatibility
 type StreamingServer interface {
 	ConsumeStream(*ConsumeRequest, Streaming_ConsumeStreamServer) error
 	ProduceStream(Streaming_ProduceStreamServer) error
+	GetMetadata(context.Context, *MetadataRequest) (*MetadataResponse, error)
 	mustEmbedUnimplementedStreamingServer()
 }
 
@@ -113,6 +124,9 @@ func (UnimplementedStreamingServer) ConsumeStream(*ConsumeRequest, Streaming_Con
 }
 func (UnimplementedStreamingServer) ProduceStream(Streaming_ProduceStreamServer) error {
 	return status.Errorf(codes.Unimplemented, "method ProduceStream not implemented")
+}
+func (UnimplementedStreamingServer) GetMetadata(context.Context, *MetadataRequest) (*MetadataResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetMetadata not implemented")
 }
 func (UnimplementedStreamingServer) mustEmbedUnimplementedStreamingServer() {}
 
@@ -174,10 +188,33 @@ func (x *streamingProduceStreamServer) Recv() (*ProduceRequest, error) {
 	return m, nil
 }
 
+func _Streaming_GetMetadata_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MetadataRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StreamingServer).GetMetadata(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/streaming.v1.Streaming/GetMetadata",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StreamingServer).GetMetadata(ctx, req.(*MetadataRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 var _Streaming_serviceDesc = grpc.ServiceDesc{
 	ServiceName: "streaming.v1.Streaming",
 	HandlerType: (*StreamingServer)(nil),
-	Methods:     []grpc.MethodDesc{},
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "GetMetadata",
+			Handler:    _Streaming_GetMetadata_Handler,
+		},
+	},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "ConsumeStream",

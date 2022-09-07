@@ -17,6 +17,7 @@ type Config struct {
 		Rule         ParticipationRule
 		RPCAddress   string
 		Ring         *ring.Ring
+		MaxChunkSize uint64
 	}
 	Point struct {
 		TickTime       time.Duration
