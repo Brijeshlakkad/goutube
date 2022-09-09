@@ -51,7 +51,7 @@ func TestDistributedLoci_Create_Append_Read(t *testing.T) {
 }
 
 func TestDistributedLoci_ParticipationRule(t *testing.T) {
-	rules := []ParticipationRule{LeaderRule, LeaderFollowerRule, FollowerRule}
+	rules := []ParticipationRule{LeaderRule, FollowerRule, FollowerRule}
 	var teardowns []func()
 
 	defer func() {
@@ -89,8 +89,6 @@ func TestDistributedLoci_ParticipationRule(t *testing.T) {
 			require.Error(t, err)
 		} else if rules[i] == LeaderRule {
 			require.Error(t, err)
-		} else if rules[i] == LeaderFollowerRule {
-			require.NoError(t, err)
 		} else if rules[i] == FollowerRule {
 			require.NoError(t, err)
 		}

@@ -138,8 +138,12 @@ func (d *DistributedLoci) apply(reqType RequestType, key interface{}, value inte
 	return res.Response, nil
 }
 
+func (d *DistributedLoci) ReadWithLimit(pointId string, pos uint64, chunkSize uint64, limit uint64) (uint64, []byte, error) {
+	return d.locus.Read(pointId, pos, chunkSize, limit)
+}
+
 func (d *DistributedLoci) Read(pointId string, pos uint64) (uint64, []byte, error) {
-	return d.locus.Read(pointId, pos)
+	return d.locus.Read(pointId, pos, 0, 0)
 }
 
 func (d *DistributedLoci) ReadAt(pointId string, b []byte, off uint64) (int, error) {
@@ -203,8 +207,7 @@ func (d *DistributedLoci) Leave(rpcAddr string) error {
 }
 
 func (d *DistributedLoci) canArcJoin(rule ParticipationRule) bool {
-	return (d.config.Distributed.Rule == LeaderRule || d.config.Distributed.Rule == LeaderFollowerRule) &&
-		(rule == FollowerRule || rule == LeaderFollowerRule)
+	return d.config.Distributed.Rule == LeaderRule && rule == FollowerRule
 }
 
 func (d *DistributedLoci) GetServers(req *streaming_api.GetServersRequest) ([]*streaming_api.Server, error) {
@@ -344,7 +347,7 @@ func (f *fsm) applyAppend(b []byte) *FSMRecordResponse {
 }
 
 func (f *fsm) Read(key string, offset uint64) (uint64, []byte, error) {
-	return f.locus.Read(key, offset)
+	return f.locus.Read(key, offset, 0, 0)
 }
 
 type RequestBundler struct {

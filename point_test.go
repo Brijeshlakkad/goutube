@@ -47,7 +47,7 @@ func testRead(t *testing.T, p *Point) {
 	t.Helper()
 	var pos uint64
 	for i := uint64(1); i < 4; i++ {
-		nextOffset, read, err := p.Read(pos)
+		nextOffset, read, err := p.Read(pos, 0, 0)
 		require.NoError(t, err)
 		require.Equal(t, write, read)
 		pos += width

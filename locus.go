@@ -93,7 +93,7 @@ func (l *Locus) Append(pointId string, b []byte) (n uint64, pos uint64, err erro
 	return point.Append(b)
 }
 
-func (l *Locus) Read(pointId string, pos uint64) (uint64, []byte, error) {
+func (l *Locus) Read(pointId string, pos uint64, chunkSize uint64, limit uint64) (uint64, []byte, error) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 
@@ -103,7 +103,7 @@ func (l *Locus) Read(pointId string, pos uint64) (uint64, []byte, error) {
 	}
 	defer l.Config.Point.pointScheduler.Enqueue(point)
 
-	return point.Read(pos)
+	return point.Read(pos, chunkSize, limit)
 }
 
 func (l *Locus) ReadAt(pointId string, b []byte, off uint64) (int, error) {

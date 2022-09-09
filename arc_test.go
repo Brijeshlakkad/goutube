@@ -65,7 +65,7 @@ func TestArc_FSM(t *testing.T) {
 	var pos uint64
 	for i := 0; i < 10; i++ {
 		data := file[i*chunkSize : (i+1)*chunkSize]
-		nextOffset, read, err := locus.Read(testPointId, pos)
+		nextOffset, read, err := locus.Read(testPointId, pos, 0, 0)
 		require.NoError(t, err)
 		require.Equal(t, data, read)
 		pos += uint64(len(data))
@@ -157,7 +157,7 @@ func TestArc_Followers(t *testing.T) {
 	var pos uint64
 	for i := 0; i < 10; i++ {
 		data := file[i*chunkSize : (i+1)*chunkSize]
-		nextOffset, read, err := locus_Follower.Read(testPointId, pos)
+		nextOffset, read, err := locus_Follower.Read(testPointId, pos, 0, 0)
 		require.NoError(t, err)
 		require.Equal(t, data, read)
 		pos += uint64(len(data))
@@ -217,7 +217,7 @@ func TestArc_TransferResponsibility(t *testing.T) {
 	var pos uint64
 	for i := 0; i < 10; i++ {
 		data := file[i*chunkSize : (i+1)*chunkSize]
-		nextOffset, read, err := locus_Peer_1.Read(pointId1, pos)
+		nextOffset, read, err := locus_Peer_1.Read(pointId1, pos, 0, 0)
 		require.NoError(t, err)
 		require.Equal(t, data, read)
 		pos += uint64(len(data))

@@ -2,6 +2,7 @@ package goutube
 
 import (
 	"bufio"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -73,7 +74,7 @@ func (p *Point) Append(b []byte) (n uint64, pos uint64, err error) {
 	return p.size, pos, nil
 }
 
-func (p *Point) Read(pos uint64) (uint64, []byte, error) {
+func (p *Point) Read(pos uint64, chunkSize uint64, limit uint64) (uint64, []byte, error) {
 	p.pointLock.Lock()
 	defer p.pointLock.Unlock()
 
@@ -83,10 +84,26 @@ func (p *Point) Read(pos uint64) (uint64, []byte, error) {
 		}
 	}
 
+	// set limit
+	if limit == 0 {
+		limit = p.size
+	}
+
+	// file doesn't have more reads
+	if limit-pos == 0 {
+		return 0, nil, io.EOF
+	}
+
+	// set size of the buffer
+	if chunkSize == 0 {
+		chunkSize = p.config.Distributed.MaxChunkSize
+		chunkSize = min(limit-pos, chunkSize)
+	}
+
 	if err := p.buf.Flush(); err != nil {
 		return 0, nil, err
 	}
-	b := make([]byte, min(p.size-pos, p.config.Distributed.MaxChunkSize)) // create buffer with size of minimum of available reads and MaxChunkSize to prevent EOF
+	b := make([]byte, chunkSize) // create buffer with size of minimum of available reads and MaxChunkSize to prevent EOF
 	if _, err := p.File.ReadAt(b, int64(pos)); err != nil {
 		return 0, nil, err
 	}

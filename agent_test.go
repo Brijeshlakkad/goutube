@@ -43,7 +43,7 @@ func TestAgent_Replication(t *testing.T) {
 		var leaderJoinAddrs []string
 		rule := LeaderRule
 		if i != 0 {
-			rule = LeaderFollowerRule
+			rule = FollowerRule
 			startJoinAddrs = append(
 				startJoinAddrs,
 				agents[0].BindAddr,

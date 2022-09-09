@@ -25,6 +25,8 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
+var testMultiStreamPercent = 50
+
 func TestLoadBalancer_ProduceStream_ConsumeStream_GetMetaData(t *testing.T) {
 	objectKey := testPointId
 	loadBalancerClient, ringInstance, lociMap, teardown := setupTestLoadBalancer(t)
@@ -145,7 +147,7 @@ func TestLoadBalancer_ProduceStream_ConsumeStream_GetMetaData(t *testing.T) {
 		Point: testPointId,
 	})
 	require.NoError(t, err)
-	require.Equal(t, len(respFollowers.Servers)/2, len(metadataResp.Workers))
+	require.Equal(t, len(respFollowers.Servers)*testMultiStreamPercent/100, len(metadataResp.Workers))
 	require.Equal(t, len(file), int(metadataResp.Size))
 	for _, workerAddr := range metadataResp.Workers {
 		found := false
@@ -164,7 +166,7 @@ func TestLoadBalancer_FollowerCache(t *testing.T) {
 	testRPCAddr := "server-rpc-address"
 
 	// check on empty followers list.
-	cache[testRPCAddr] = NewFollowerCache([]*streaming_api.Server{}, MultiStreamPercent)
+	cache[testRPCAddr] = NewFollowerCache([]*streaming_api.Server{}, testMultiStreamPercent)
 	_, found := cache[testRPCAddr].getNextFollower()
 	require.False(t, found)
 
@@ -178,7 +180,7 @@ func TestLoadBalancer_FollowerCache(t *testing.T) {
 	}
 
 	// check if the getNextFollower returns the expected follower address.
-	cache[testRPCAddr] = NewFollowerCache(followers, MultiStreamPercent)
+	cache[testRPCAddr] = NewFollowerCache(followers, testMultiStreamPercent)
 	followerIndex := 0
 	for i := 0; i < followerCount+1; i++ {
 		curFollower, found := cache[testRPCAddr].getNextFollower()
@@ -484,10 +486,11 @@ func setupTestLoadBalancer(t *testing.T) (streaming_api.StreamingClient,
 	)
 
 	cfg := &loadbalancerConfig{
-		id:         "load-balancer",
-		ring:       ringInstance,
-		Authorizer: authorizer,
-		MaxPool:    5,
+		id:                 "load-balancer",
+		ring:               ringInstance,
+		Authorizer:         authorizer,
+		MaxPool:            5,
+		MultiStreamPercent: testMultiStreamPercent,
 	}
 	require.NoError(t, err)
 	// END: setup the load balancer configuration

@@ -13,6 +13,8 @@ service Streaming {
 message ConsumeRequest {
   string point = 1;
   uint64 offset = 2;
+  uint64 limit = 3;
+  uint64 chunk_size = 4;
 }
 
 message ConsumeResponse {

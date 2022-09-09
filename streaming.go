@@ -26,7 +26,7 @@ type StreamingConfig struct {
 type LocusHelper interface {
 	Append(*streaming_api.ProduceRequest) (uint64, error)
 	GetMetadata(string) (PointMetadata, error)
-	Read(string, uint64) (uint64, []byte, error)
+	ReadWithLimit(string, uint64, uint64, uint64) (uint64, []byte, error)
 	ClosePoint(string) error
 }
 
@@ -79,12 +79,14 @@ func (s *StreamingManager) ConsumeStream(req *streaming_api.ConsumeRequest, stre
 	defer s.Locus.ClosePoint(pointId)
 
 	off := req.GetOffset()
+	limit := req.GetLimit()
+	chunkSize := req.GetChunkSize()
 	for {
 		select {
 		case <-stream.Context().Done():
 			return nil
 		default:
-			nextOff, buf, err := s.Locus.Read(pointId, off)
+			nextOff, buf, err := s.Locus.ReadWithLimit(pointId, off, chunkSize, limit)
 			if err != nil {
 				return nil
 			}

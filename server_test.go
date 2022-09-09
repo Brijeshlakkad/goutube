@@ -48,7 +48,7 @@ func TestStreamingManager_ProduceStream_And_ConsumeStream(t *testing.T) {
 		t.Fatalf("error while calling ConsumeStream RPC: %v", err)
 	}
 	i := 0
-	for i = 0; i < testPointLines; i++ {
+	for ; ; i++ {
 		resp, err := resStream.Recv()
 		if err == io.EOF {
 			// we've reached the end of the stream
@@ -59,6 +59,128 @@ func TestStreamingManager_ProduceStream_And_ConsumeStream(t *testing.T) {
 		require.Equal(t, file[i*chunkSize:(i+1)*chunkSize], b)
 	}
 	require.Equal(t, testPointLines, i)
+}
+
+func TestStreamingManager_ProduceStream_And_ConsumeStream_WithLimit(t *testing.T) {
+	chunkSize := int(testChunkSize)
+	client, _, _, teardown := setupTestServer(t, nil, uint64(chunkSize))
+	defer teardown()
+
+	stream, err := client.ProduceStream(context.Background())
+	require.NoError(t, err)
+
+	file := setupFile(t, chunkSize, testPointLines)
+
+	for i := 0; i < testPointLines; i++ {
+		b := file[i*chunkSize : (i+1)*chunkSize]
+		err := stream.Send(&streaming_api.ProduceRequest{Point: testPointId, Frame: b})
+		require.NoError(t, err)
+	}
+
+	resp, err := stream.CloseAndRecv()
+	require.NoError(t, err)
+
+	require.Equal(t, 1, len(resp.Records))
+	require.Equal(t, testPointId, resp.Records[0].Point)
+	require.Equal(t, uint64(2304), resp.Records[0].Offset)
+
+	// test consume stream
+	resStream, err := client.ConsumeStream(context.Background(), &streaming_api.ConsumeRequest{Point: testPointId})
+	if err != nil {
+		t.Fatalf("error while calling ConsumeStream RPC: %v", err)
+	}
+	i := 0
+	for ; ; i++ {
+		resp, err := resStream.Recv()
+		if err == io.EOF {
+			// we've reached the end of the stream
+			break
+		}
+		require.NoError(t, err)
+		b := resp.GetFrame()
+		require.Equal(t, file[i*chunkSize:(i+1)*chunkSize], b)
+	}
+	require.Equal(t, testPointLines, i)
+
+	offset := 2
+	// test consume stream with preset offset
+	resStream, err = client.ConsumeStream(context.Background(), &streaming_api.ConsumeRequest{Point: testPointId, Offset: uint64(chunkSize * offset)})
+	if err != nil {
+		t.Fatalf("error while calling ConsumeStream RPC: %v", err)
+	}
+	i = offset
+	for ; ; i++ {
+		resp, err := resStream.Recv()
+		if err == io.EOF {
+			// we've reached the end of the stream
+			break
+		}
+		require.NoError(t, err)
+		b := resp.GetFrame()
+		require.Equal(t, file[i*chunkSize:(i+1)*chunkSize], b)
+	}
+	require.Equal(t, testPointLines, i)
+
+	limit := 8
+	// test consume stream with preset limit
+	resStream, err = client.ConsumeStream(context.Background(), &streaming_api.ConsumeRequest{Point: testPointId, Limit: uint64(chunkSize * limit)})
+	if err != nil {
+		t.Fatalf("error while calling ConsumeStream RPC: %v", err)
+	}
+	i = 0
+	for ; ; i++ {
+		resp, err := resStream.Recv()
+		if err == io.EOF {
+			// we've reached the end of the stream
+			break
+		}
+		require.NoError(t, err)
+		b := resp.GetFrame()
+		require.Equal(t, file[i*chunkSize:(i+1)*chunkSize], b)
+	}
+	require.Equal(t, limit, i)
+
+	offset = 2
+	limit = 7
+	// test consume stream with preset offset and limit
+	resStream, err = client.ConsumeStream(context.Background(), &streaming_api.ConsumeRequest{Point: testPointId, Offset: uint64(chunkSize * offset), Limit: uint64(chunkSize * limit)})
+	if err != nil {
+		t.Fatalf("error while calling ConsumeStream RPC: %v", err)
+	}
+	i = offset
+	for ; ; i++ {
+		resp, err := resStream.Recv()
+		if err == io.EOF {
+			// we've reached the end of the stream
+			break
+		}
+		require.NoError(t, err)
+		b := resp.GetFrame()
+		require.Equal(t, file[i*chunkSize:(i+1)*chunkSize], b)
+	}
+	require.Equal(t, limit, i)
+
+	offset = 1
+	limit = 5
+	customChunkSize := 512
+	expectedI := limit * chunkSize / customChunkSize
+	// test consume stream with preset chunk size, offset and limit
+	resStream, err = client.ConsumeStream(context.Background(), &streaming_api.ConsumeRequest{Point: testPointId, ChunkSize: uint64(customChunkSize), Offset: uint64(chunkSize * offset), Limit: uint64(chunkSize * limit)})
+	if err != nil {
+		t.Fatalf("error while calling ConsumeStream RPC: %v", err)
+	}
+	i = offset
+	for ; ; i++ {
+		resp, err := resStream.Recv()
+		if err == io.EOF {
+			// we've reached the end of the stream
+			break
+		}
+		require.NoError(t, err)
+		b := resp.GetFrame()
+		require.Equal(t, file[i*customChunkSize:(i+1)*customChunkSize], b)
+	}
+	require.Equal(t, expectedI+1, i) // +1 because for loop will iterate one more time and will get io.EOF error
 }
 
 func setupTestServer(t *testing.T, fn func(), chunkSize uint64) (

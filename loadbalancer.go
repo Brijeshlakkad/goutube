@@ -22,10 +22,6 @@ var (
 	ErrWorkersNotFound              = errors.New("workers not found")
 )
 
-const (
-	MultiStreamPercent = 50
-)
-
 // loadBalancer finds the responsible server for the provided request.
 // If the request relates to producing, it will redirect it to the leader of the cluster responsible for the respective object.
 // For now, the request relating to consuming will get redirected to the replica of that object cluster in the round-robin fashion.
@@ -52,11 +48,12 @@ type loadBalancer struct {
 }
 
 type loadbalancerConfig struct {
-	id         string
-	ring       *ring.Ring
-	Authorizer *authorizer
-	MaxPool    int
-	Logger     hclog.Logger
+	id                 string
+	ring               *ring.Ring
+	Authorizer         *authorizer
+	MaxPool            int
+	Logger             hclog.Logger
+	MultiStreamPercent int
 }
 
 func newLoadBalancer(config *loadbalancerConfig) (*loadBalancer, error) {
@@ -203,7 +200,7 @@ func (lb *loadBalancer) ConsumeStream(req *streaming_api.ConsumeRequest, stream 
 		var resp *streaming_api.GetFollowersResponse
 		resp, err = resolverHelperClient.GetFollowers(lb.streamCtx, &streaming_api.GetFollowersRequest{})
 		// cache the list of followers for this leader.
-		lb.cache[shardNodeRPCAddr] = NewFollowerCache(resp.Servers, MultiStreamPercent)
+		lb.cache[shardNodeRPCAddr] = NewFollowerCache(resp.Servers, lb.MultiStreamPercent)
 	}
 
 	cache, _ := lb.cache[shardNodeRPCAddr]
@@ -275,7 +272,7 @@ func (lb *loadBalancer) GetMetadata(ctx context.Context, req *streaming_api.Meta
 		var resp *streaming_api.GetFollowersResponse
 		resp, err = resolverHelperClient.GetFollowers(lb.streamCtx, &streaming_api.GetFollowersRequest{})
 		// cache the list of followers for this leader.
-		lb.cache[shardNodeRPCAddr] = NewFollowerCache(resp.Servers, MultiStreamPercent)
+		lb.cache[shardNodeRPCAddr] = NewFollowerCache(resp.Servers, lb.MultiStreamPercent)
 	}
 
 	cache, _ := lb.cache[shardNodeRPCAddr]
