@@ -45,6 +45,9 @@ type AgentConfig struct {
 
 	LeaderAddresses []string          // Addresses of the servers which will set this server as one of its loadbalancers (for replication).
 	Rule            ParticipationRule // True, if this server takes part in the ring (peer-to-peer architecture) and/or replication.
+
+	MaxChunkSize       uint64 // MaxChunkSize defines the size of the chunk that can be processed by this server.
+	MultiStreamPercent int    // MultiStreamPercent tells Percents of the number of followers to return upon GetMetadata request?
 }
 
 func (c AgentConfig) RPCAddr() (string, error) {
@@ -68,6 +71,15 @@ func NewAgent(config AgentConfig) (*Agent, error) {
 		AgentConfig: config,
 		shutdowns:   make(chan struct{}),
 	}
+
+	// Set default values
+	if config.MaxChunkSize == 0 {
+		config.MaxChunkSize = DefaultMaxChunkSize
+	}
+	if config.MultiStreamPercent == 0 {
+		config.MultiStreamPercent = DefaultMultiStreamPercent
+	}
+
 	setup := []func() error{
 		a.setupMux,
 		a.setupRing,
@@ -151,6 +163,7 @@ func (a *Agent) setupLoci() error {
 	}
 
 	locusConfig := Config{}
+	locusConfig.Distributed.MaxChunkSize = a.MaxChunkSize
 	locusConfig.Distributed.StreamLayer = NewStreamLayer(
 		lociLn,
 		a.ServerTLSConfig,
@@ -176,27 +189,24 @@ func (a *Agent) setupReplicationCluster() error {
 	if !shouldImplementReplicationCluster(a.Rule) {
 		return nil
 	}
-	if a.Rule == LeaderRule || a.Rule == FollowerRule || a.Rule == LeaderFollowerRule {
-		rpcAddr, err := a.RPCAddr()
-		if err != nil {
-			return err
-		}
-		replicationBindAdrr, err := a.ReplicationRPCAddr()
-		if err != nil {
-			return err
-		}
-		a.replicationCluster, err = newReplicationCluster(a.loci, ReplicationClusterConfig{
-			NodeName:      fmt.Sprintf("replication-%s", a.NodeName),
-			BindAddr:      replicationBindAdrr,
-			SeedAddresses: a.LeaderAddresses,
-			Tags: map[string]string{
-				"rpc_addr": rpcAddr,
-				"rule":     strconv.Itoa(int(a.Rule)),
-			},
-		})
+	rpcAddr, err := a.RPCAddr()
+	if err != nil {
 		return err
 	}
-	return nil
+	replicationBindAdrr, err := a.ReplicationRPCAddr()
+	if err != nil {
+		return err
+	}
+	a.replicationCluster, err = newReplicationCluster(a.loci, ReplicationClusterConfig{
+		NodeName:      fmt.Sprintf("replication-%s", a.NodeName),
+		BindAddr:      replicationBindAdrr,
+		SeedAddresses: a.LeaderAddresses,
+		Tags: map[string]string{
+			"rpc_addr": rpcAddr,
+			"rule":     strconv.Itoa(int(a.Rule)),
+		},
+	})
+	return err
 }
 
 func (a *Agent) setupServer() error {
@@ -207,10 +217,11 @@ func (a *Agent) setupServer() error {
 		)
 
 		serverConfig := &loadbalancerConfig{
-			id:         a.NodeName,
-			ring:       a.ring,
-			Authorizer: authorizer,
-			MaxPool:    5,
+			id:                 a.NodeName,
+			ring:               a.ring,
+			Authorizer:         authorizer,
+			MaxPool:            5,
+			MultiStreamPercent: a.MultiStreamPercent,
 		}
 
 		var opts []grpc.ServerOption
@@ -289,7 +300,7 @@ func (a *Agent) Shutdown() error {
 	shutdown = append(
 		shutdown,
 		func() error {
-			a.server.GracefulStop()
+			a.server.Stop()
 			return nil
 		},
 	)

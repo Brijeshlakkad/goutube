@@ -3,6 +3,7 @@ package goutube
 import (
 	"bytes"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -14,6 +15,10 @@ import (
 	"github.com/hashicorp/go-hclog"
 
 	"google.golang.org/protobuf/proto"
+)
+
+var (
+	ErrMaxChunkSizeInvalid = errors.New("configuration error: max chunk size cannot be zero")
 )
 
 type DistributedLoci struct {
@@ -34,6 +39,9 @@ func NewDistributedLoci(dataDir string, config Config) (
 	*DistributedLoci,
 	error,
 ) {
+	if config.Distributed.MaxChunkSize <= 0 {
+		return nil, ErrMaxChunkSizeInvalid
+	}
 	if config.Distributed.Logger == nil {
 		config.Distributed.Logger = hclog.New(&hclog.LoggerOptions{
 			Name:   "distributed-loci",
@@ -48,7 +56,7 @@ func NewDistributedLoci(dataDir string, config Config) (
 	}
 	var err error
 
-	if err = d.setupLociManager(dataDir); err != nil {
+	if err = d.setupLocus(dataDir); err != nil {
 		return nil, err
 	}
 	if err = d.setupStore(dataDir); err != nil {
@@ -70,7 +78,7 @@ func NewDistributedLoci(dataDir string, config Config) (
 	return d, nil
 }
 
-func (d *DistributedLoci) setupLociManager(dataDir string) error {
+func (d *DistributedLoci) setupLocus(dataDir string) error {
 	lociDir, err := createDirectory(dataDir, "locus")
 	if err != nil {
 		return err
@@ -108,7 +116,7 @@ func (d *DistributedLoci) Append(record *streaming_api.ProduceRequest) (uint64, 
 	}
 	records := apply.(*streaming_api.ProduceResponse).Records
 	if len(records) > 0 {
-		return apply.(*streaming_api.ProduceResponse).Records[0].Offset, nil
+		return records[0].Offset, nil
 	}
 	return 0, nil
 }
@@ -130,13 +138,20 @@ func (d *DistributedLoci) apply(reqType RequestType, key interface{}, value inte
 	return res.Response, nil
 }
 
-func (d *DistributedLoci) Read(pointId string, pos uint64) ([]byte, error) {
-	_, b, err := d.locus.Read(pointId, pos)
-	return b, err
+func (d *DistributedLoci) ReadWithLimit(pointId string, pos uint64, chunkSize uint64, limit uint64) (uint64, []byte, error) {
+	return d.locus.Read(pointId, pos, chunkSize, limit)
+}
+
+func (d *DistributedLoci) Read(pointId string, pos uint64) (uint64, []byte, error) {
+	return d.locus.Read(pointId, pos, 0, 0)
 }
 
 func (d *DistributedLoci) ReadAt(pointId string, b []byte, off uint64) (int, error) {
 	return d.locus.ReadAt(pointId, b, off)
+}
+
+func (d *DistributedLoci) GetMetadata(pointId string) (PointMetadata, error) {
+	return d.locus.GetMetadata(pointId)
 }
 
 func (d *DistributedLoci) ClosePoint(pointId string) error {
@@ -192,8 +207,7 @@ func (d *DistributedLoci) Leave(rpcAddr string) error {
 }
 
 func (d *DistributedLoci) canArcJoin(rule ParticipationRule) bool {
-	return (d.config.Distributed.Rule == LeaderRule || d.config.Distributed.Rule == LeaderFollowerRule) &&
-		(rule == FollowerRule || rule == LeaderFollowerRule)
+	return d.config.Distributed.Rule == LeaderRule && rule == FollowerRule
 }
 
 func (d *DistributedLoci) GetServers(req *streaming_api.GetServersRequest) ([]*streaming_api.Server, error) {
@@ -333,7 +347,7 @@ func (f *fsm) applyAppend(b []byte) *FSMRecordResponse {
 }
 
 func (f *fsm) Read(key string, offset uint64) (uint64, []byte, error) {
-	return f.locus.Read(key, offset)
+	return f.locus.Read(key, offset, 0, 0)
 }
 
 type RequestBundler struct {

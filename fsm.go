@@ -19,9 +19,13 @@ func (arc *Arc) runFSM() {
 		}()
 
 		resp = arc.fsm.Apply(cp.req)
-
-		if err := arc.store.AddPointEvent(resp.StoreKey.(string), resp.StoreValue.(uint64)); err != nil {
-			arc.logger.Error("failed to add event to the store", "error", err)
+		switch resp.Response.(type) {
+		case error:
+			arc.logger.Error("failed execute FSM", "error", resp.Response)
+		default:
+			if err := arc.store.AddPointEvent(resp.StoreKey.(string), resp.StoreValue.(uint64)); err != nil {
+				arc.logger.Error("failed to add event to the store", "error", err)
+			}
 		}
 
 		return resp.StoreKey
@@ -33,10 +37,8 @@ func (arc *Arc) runFSM() {
 		case cp = <-arc.applyCh:
 			key := applySingle(cp)
 
-			arc.replicateStateLock.Lock()
 			// Async notifying replicas.
 			arc.notifyFollowers(key)
-			arc.replicateStateLock.Unlock()
 		case <-arc.shutdownCh:
 			return
 		}
@@ -44,6 +46,8 @@ func (arc *Arc) runFSM() {
 }
 
 func (arc *Arc) notifyFollowers(key interface{}) {
+	arc.replicateStateLock.Lock()
+	defer arc.replicateStateLock.Unlock()
 	// Iterate through all the replicas to notify of the change.
 	for _, follower := range arc.replicateState {
 		asyncNotifyCh(follower.triggerCh, key)

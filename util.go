@@ -35,7 +35,7 @@ func createDirectory(parentDir, dataDir string) (string, error) {
 
 // toRingMemberType gets the member type in ring.MemberType from the rule.
 func toRingMemberType(rule ParticipationRule) (ring.MemberType, bool) {
-	if rule == LeaderFollowerRule || rule == LeaderRule || rule == StandaloneLeaderRule {
+	if rule == LeaderRule || rule == StandaloneLeaderRule {
 		return ring.ShardMember, true
 	} else if rule == LoadBalancerRule {
 		return ring.LoadBalancerMember, true
@@ -55,7 +55,7 @@ func shouldImplementLoci(rule ParticipationRule) bool {
 
 // shouldImplementReplicationCluster if the server should be the part of a replication cluster.
 func shouldImplementReplicationCluster(rule ParticipationRule) bool {
-	return rule != LoadBalancerRule
+	return rule != LoadBalancerRule && rule != StandaloneLeaderRule
 }
 
 // shouldImplementLoadBalancer if the server should implement the load balancer server. If yes, the server will not implement streaming server and vice versa.

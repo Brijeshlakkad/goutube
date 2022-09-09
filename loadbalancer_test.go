@@ -25,7 +25,9 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
-func TestLoadBalancer_ProduceStream_ConsumeStream(t *testing.T) {
+var testMultiStreamPercent = 50
+
+func TestLoadBalancer_ProduceStream_ConsumeStream_GetMetaData(t *testing.T) {
 	objectKey := testPointId
 	loadBalancerClient, ringInstance, lociMap, teardown := setupTestLoadBalancer(t)
 	defer teardown()
@@ -56,12 +58,14 @@ func TestLoadBalancer_ProduceStream_ConsumeStream(t *testing.T) {
 
 	expectedOffset := uint64(0)
 	expectedPos := uint64(0)
-	for i := 1; i <= testPointLines; i++ {
+	chunkSize := int(testChunkSize)
+	file := setupFile(t, chunkSize, testPointLines)
+	for i := 0; i < testPointLines; i++ {
 		expectedOffset = expectedPos
-		data := []byte(fmt.Sprintf("Line: %d", i))
+		data := file[i*chunkSize : (i+1)*chunkSize]
 		err := stream.Send(&streaming_api.ProduceRequest{Point: objectKey, Frame: data})
 		require.NoError(t, err)
-		expectedPos = expectedOffset + uint64(len(data)+lenWidth)
+		expectedPos = expectedOffset + uint64(len(data))
 	}
 	resp, err := stream.CloseAndRecv()
 	require.NoError(t, err)
@@ -77,9 +81,9 @@ func TestLoadBalancer_ProduceStream_ConsumeStream(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error while calling ConsumeStream from Load Balancer: %v", err)
 	}
-	i := 1
-	for ; i <= testPointLines; i++ {
-		expectedData := fmt.Sprintf("Line: %d", i)
+	i := 0
+	for ; i < testPointLines; i++ {
+		expectedData := file[i*chunkSize : (i+1)*chunkSize]
 		resp, err := resStream.Recv()
 		if err == io.EOF {
 			// we've reached the end of the stream
@@ -87,18 +91,18 @@ func TestLoadBalancer_ProduceStream_ConsumeStream(t *testing.T) {
 		}
 		require.NoError(t, err)
 		b := resp.GetFrame()
-		require.Equal(t, expectedData, string(b))
+		require.Equal(t, expectedData, b)
 	}
-	require.Equal(t, testPointLines+1, i)
+	require.Equal(t, testPointLines, i)
 
 	// test consume stream from the responsible server
 	resStream, err = objLeader.streamingClient.ConsumeStream(context.Background(), &streaming_api.ConsumeRequest{Point: testPointId})
 	if err != nil {
 		t.Fatalf("error while calling ConsumeStream from Load Balancer: %v", err)
 	}
-	i = 1
-	for ; i <= testPointLines; i++ {
-		expectedData := fmt.Sprintf("Line: %d", i)
+	i = 0
+	for ; i < testPointLines; i++ {
+		expectedData := file[i*chunkSize : (i+1)*chunkSize]
 		resp, err := resStream.Recv()
 		if err == io.EOF {
 			// we've reached the end of the stream
@@ -106,9 +110,9 @@ func TestLoadBalancer_ProduceStream_ConsumeStream(t *testing.T) {
 		}
 		require.NoError(t, err)
 		b := resp.GetFrame()
-		require.Equal(t, expectedData, string(b))
+		require.Equal(t, expectedData, b)
 	}
-	require.Equal(t, testPointLines+1, i)
+	require.Equal(t, testPointLines, i)
 
 	// test consume stream from the followers of the object replication cluster.
 	// get the followers of the server.
@@ -123,9 +127,9 @@ func TestLoadBalancer_ProduceStream_ConsumeStream(t *testing.T) {
 		if err != nil {
 			t.Fatalf("error while calling ConsumeStream from Load Balancer: %v", err)
 		}
-		i = 1
-		for ; i <= testPointLines; i++ {
-			expectedData := fmt.Sprintf("Line: %d", i)
+		i = 0
+		for ; i < testPointLines; i++ {
+			expectedData := file[i*chunkSize : (i+1)*chunkSize]
 			resp, err := resStream.Recv()
 			if err == io.EOF {
 				// we've reached the end of the stream
@@ -133,9 +137,27 @@ func TestLoadBalancer_ProduceStream_ConsumeStream(t *testing.T) {
 			}
 			require.NoError(t, err)
 			b := resp.GetFrame()
-			require.Equal(t, expectedData, string(b))
+			require.Equal(t, expectedData, b)
 		}
-		require.Equal(t, testPointLines+1, i)
+		require.Equal(t, testPointLines, i)
+	}
+
+	// Test GetMetadata to receive the list of workers and size of the point.
+	metadataResp, err := loadBalancerClient.GetMetadata(context.Background(), &streaming_api.MetadataRequest{
+		Point: testPointId,
+	})
+	require.NoError(t, err)
+	require.Equal(t, len(respFollowers.Servers)*testMultiStreamPercent/100, len(metadataResp.Workers))
+	require.Equal(t, len(file), int(metadataResp.Size))
+	for _, workerAddr := range metadataResp.Workers {
+		found := false
+		for _, follower := range respFollowers.Servers {
+			if follower.RpcAddr == workerAddr {
+				found = true
+				break
+			}
+		}
+		require.True(t, found)
 	}
 }
 
@@ -144,7 +166,7 @@ func TestLoadBalancer_FollowerCache(t *testing.T) {
 	testRPCAddr := "server-rpc-address"
 
 	// check on empty followers list.
-	cache[testRPCAddr] = NewFollowerCache([]*streaming_api.Server{})
+	cache[testRPCAddr] = NewFollowerCache([]*streaming_api.Server{}, testMultiStreamPercent)
 	_, found := cache[testRPCAddr].getNextFollower()
 	require.False(t, found)
 
@@ -158,7 +180,7 @@ func TestLoadBalancer_FollowerCache(t *testing.T) {
 	}
 
 	// check if the getNextFollower returns the expected follower address.
-	cache[testRPCAddr] = NewFollowerCache(followers)
+	cache[testRPCAddr] = NewFollowerCache(followers, testMultiStreamPercent)
 	followerIndex := 0
 	for i := 0; i < followerCount+1; i++ {
 		curFollower, found := cache[testRPCAddr].getNextFollower()
@@ -300,12 +322,14 @@ func TestLoadBalancer_ConsumeStream_Cache(t *testing.T) {
 
 	expectedOffset := uint64(0)
 	expectedPos := uint64(0)
-	for i := 1; i <= testPointLines; i++ {
+	chunkSize := int(testChunkSize)
+	file := setupFile(t, chunkSize, testPointLines)
+	for i := 0; i < testPointLines; i++ {
 		expectedOffset = expectedPos
-		data := []byte(fmt.Sprintf("Line: %d", i))
+		data := file[i*chunkSize : (i+1)*chunkSize]
 		err := stream.Send(&streaming_api.ProduceRequest{Point: objectKey, Frame: data})
 		require.NoError(t, err)
-		expectedPos = expectedOffset + uint64(len(data)+lenWidth)
+		expectedPos = expectedOffset + uint64(len(data))
 	}
 	resp, err := stream.CloseAndRecv()
 	require.NoError(t, err)
@@ -321,9 +345,9 @@ func TestLoadBalancer_ConsumeStream_Cache(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error while calling ConsumeStream from Load Balancer: %v", err)
 	}
-	i := 1
-	for ; i <= testPointLines; i++ {
-		expectedData := fmt.Sprintf("Line: %d", i)
+	i := 0
+	for ; i < testPointLines; i++ {
+		expectedData := file[i*chunkSize : (i+1)*chunkSize]
 		resp, err := resStream.Recv()
 		if err == io.EOF {
 			// we've reached the end of the stream
@@ -331,9 +355,9 @@ func TestLoadBalancer_ConsumeStream_Cache(t *testing.T) {
 		}
 		require.NoError(t, err)
 		b := resp.GetFrame()
-		require.Equal(t, expectedData, string(b))
+		require.Equal(t, expectedData, b)
 	}
-	require.Equal(t, testPointLines+1, i)
+	require.Equal(t, testPointLines, i)
 
 	// validate cache
 	require.Equal(t, len(expectedCache), len(lb.cache))
@@ -462,10 +486,11 @@ func setupTestLoadBalancer(t *testing.T) (streaming_api.StreamingClient,
 	)
 
 	cfg := &loadbalancerConfig{
-		id:         "load-balancer",
-		ring:       ringInstance,
-		Authorizer: authorizer,
-		MaxPool:    5,
+		id:                 "load-balancer",
+		ring:               ringInstance,
+		Authorizer:         authorizer,
+		MaxPool:            5,
+		MultiStreamPercent: testMultiStreamPercent,
 	}
 	require.NoError(t, err)
 	// END: setup the load balancer configuration
@@ -636,6 +661,7 @@ func setupTestDistributedLoci_LoadBalancer(t *testing.T,
 	require.NoError(t, err)
 
 	c := Config{}
+	c.Distributed.MaxChunkSize = testChunkSize
 	c.Distributed.StreamLayer = NewStreamLayer(
 		listener,
 		serverTLSConfig,

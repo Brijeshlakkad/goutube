@@ -1,6 +1,7 @@
 package goutube
 
 import (
+	"context"
 	"io"
 
 	streaming_api "github.com/Brijeshlakkad/goutube/api/streaming/v1"
@@ -24,7 +25,8 @@ type StreamingConfig struct {
 
 type LocusHelper interface {
 	Append(*streaming_api.ProduceRequest) (uint64, error)
-	ReadAt(string, []byte, uint64) (int, error)
+	GetMetadata(string) (PointMetadata, error)
+	ReadWithLimit(string, uint64, uint64, uint64) (uint64, []byte, error)
 	ClosePoint(string) error
 }
 
@@ -75,33 +77,36 @@ func (s *StreamingManager) ConsumeStream(req *streaming_api.ConsumeRequest, stre
 	}
 	pointId := req.GetPoint()
 	defer s.Locus.ClosePoint(pointId)
-	off := uint64(0)
-	lenWidth := 8
+
+	off := req.GetOffset()
+	limit := req.GetLimit()
+	chunkSize := req.GetChunkSize()
 	for {
 		select {
 		case <-stream.Context().Done():
 			return nil
 		default:
-			buf := make([]byte, lenWidth)
-			n, err := s.Locus.ReadAt(pointId, buf, off)
+			nextOff, buf, err := s.Locus.ReadWithLimit(pointId, off, chunkSize, limit)
 			if err != nil {
 				return nil
 			}
-			off += uint64(n)
-
-			size := enc.Uint64(buf)
-			buf = make([]byte, size)
-			n, err = s.Locus.ReadAt(pointId, buf, off)
-			if err != nil {
-				return err
-			}
-			off += uint64(n)
+			off = nextOff
 
 			if err := stream.Send(&streaming_api.ConsumeResponse{Frame: buf}); err != nil {
 				return err
 			}
 		}
 	}
+}
+
+func (s *StreamingManager) GetMetadata(ctx context.Context, req *streaming_api.MetadataRequest) (*streaming_api.MetadataResponse, error) {
+	metadata, err := s.Locus.GetMetadata(req.GetPoint())
+	if err != nil {
+		return nil, err
+	}
+	return &streaming_api.MetadataResponse{
+		Size: metadata.size,
+	}, nil
 }
 
 func NewStreamingServer(config *StreamingConfig) (*StreamingManager, error) {

@@ -2,16 +2,12 @@ package goutube
 
 import (
 	"bufio"
-	"encoding/binary"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
-)
-
-const (
-	lenWidth = 8
 )
 
 type Point struct {
@@ -27,11 +23,13 @@ type Point struct {
 
 	lastAccessed time.Time
 	accessLock   sync.Mutex
+	config       Config
 }
 
-func newPoint(locusId string, relativePointId string) (*Point, error) {
+func newPoint(locusId string, relativePointId string, config Config) (*Point, error) {
 	p := new(Point)
 	p.pointId = relativePointId
+	p.config = config
 	p.pointDir = createPointId(locusId, relativePointId)
 	p.closed.Store(true)
 	p.close = make(chan string)
@@ -67,20 +65,16 @@ func (p *Point) Append(b []byte) (n uint64, pos uint64, err error) {
 	}
 
 	pos = p.size
-	if err := binary.Write(p.buf, enc, uint64(len(b))); err != nil {
-		return 0, 0, err
-	}
 
 	w, err := p.buf.Write(b)
 	if err != nil {
 		return 0, 0, err
 	}
-	w += lenWidth
 	p.size += uint64(w)
 	return p.size, pos, nil
 }
 
-func (p *Point) Read(pos uint64) (uint64, []byte, error) {
+func (p *Point) Read(pos uint64, chunkSize uint64, limit uint64) (uint64, []byte, error) {
 	p.pointLock.Lock()
 	defer p.pointLock.Unlock()
 
@@ -90,20 +84,30 @@ func (p *Point) Read(pos uint64) (uint64, []byte, error) {
 		}
 	}
 
-	var nextOffset uint64
+	// set limit
+	if limit == 0 {
+		limit = p.size
+	}
+
+	// file doesn't have more reads
+	if limit-pos == 0 {
+		return 0, nil, io.EOF
+	}
+
+	// set size of the buffer
+	if chunkSize == 0 {
+		chunkSize = p.config.Distributed.MaxChunkSize
+		chunkSize = min(limit-pos, chunkSize)
+	}
+
 	if err := p.buf.Flush(); err != nil {
 		return 0, nil, err
 	}
-	size := make([]byte, lenWidth)
-	if _, err := p.File.ReadAt(size, int64(pos)); err != nil {
+	b := make([]byte, chunkSize) // create buffer with size of minimum of available reads and MaxChunkSize to prevent EOF
+	if _, err := p.File.ReadAt(b, int64(pos)); err != nil {
 		return 0, nil, err
 	}
-	b := make([]byte, enc.Uint64(size))
-	if _, err := p.File.ReadAt(b, int64(pos+lenWidth)); err != nil {
-		return 0, nil, err
-	}
-	nextOffset = pos + uint64(lenWidth) + uint64(len(b))
-	return nextOffset, b, nil
+	return pos + uint64(len(b)), b, nil
 }
 
 func (p *Point) ReadAt(b []byte, off uint64) (int, error) {
@@ -120,6 +124,15 @@ func (p *Point) ReadAt(b []byte, off uint64) (int, error) {
 		return 0, err
 	}
 	return p.File.ReadAt(b, int64(off))
+}
+
+func (p *Point) GetMetadata() PointMetadata {
+	p.pointLock.Lock()
+	defer p.pointLock.Unlock()
+
+	return PointMetadata{
+		size: p.size,
+	}
 }
 
 func (p *Point) Close() error {
@@ -161,4 +174,8 @@ func (p *Point) setLastAccessed() {
 	defer p.accessLock.Unlock()
 
 	p.lastAccessed = time.Now()
+}
+
+type PointMetadata struct {
+	size uint64
 }

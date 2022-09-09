@@ -43,7 +43,7 @@ func TestAgent_Replication(t *testing.T) {
 		var leaderJoinAddrs []string
 		rule := LeaderRule
 		if i != 0 {
-			rule = LeaderFollowerRule
+			rule = FollowerRule
 			startJoinAddrs = append(
 				startJoinAddrs,
 				agents[0].BindAddr,
@@ -85,8 +85,11 @@ func TestAgent_Replication(t *testing.T) {
 	stream, err := leaderClient.ProduceStream(context.Background())
 	require.NoError(t, err)
 
+	chunkSize := int(testChunkSize)
+	file := setupFile(t, chunkSize, testPointLines)
 	for i := 0; i < lines; i++ {
-		err := stream.Send(&streaming_api.ProduceRequest{Point: pointId, Frame: []byte(fmt.Sprintln(i))})
+		data := file[i*chunkSize : (i+1)*chunkSize]
+		err := stream.Send(&streaming_api.ProduceRequest{Point: pointId, Frame: data})
 		require.NoError(t, err)
 	}
 
@@ -111,7 +114,7 @@ func TestAgent_Replication(t *testing.T) {
 		}
 		require.NoError(t, err)
 		b := resp.GetFrame()
-		require.Equal(t, fmt.Sprintln(i), string(b))
+		require.Equal(t, file[i*chunkSize:(i+1)*chunkSize], b)
 	}
 	require.Equal(t, lines, i)
 }
@@ -182,8 +185,11 @@ func TestAgent_ParticipationRule_NoReplication(t *testing.T) {
 	stream, err := leaderClient.ProduceStream(context.Background())
 	require.NoError(t, err)
 
+	chunkSize := int(testChunkSize)
+	file := setupFile(t, chunkSize, testPointLines)
 	for i := 0; i < lines; i++ {
-		err := stream.Send(&streaming_api.ProduceRequest{Point: pointId, Frame: []byte(fmt.Sprintln(i))})
+		data := file[i*chunkSize : (i+1)*chunkSize]
+		err := stream.Send(&streaming_api.ProduceRequest{Point: pointId, Frame: data})
 		require.NoError(t, err)
 	}
 
@@ -295,8 +301,11 @@ func TestAgent_ParticipationRule_LoadBalancerRule_Replication(t *testing.T) {
 	stream, err := loadBalancerClient.ProduceStream(context.Background())
 	require.NoError(t, err)
 
+	chunkSize := int(testChunkSize)
+	file := setupFile(t, chunkSize, testPointLines)
 	for i := 0; i < lines; i++ {
-		err := stream.Send(&streaming_api.ProduceRequest{Point: pointId, Frame: []byte(fmt.Sprintln(i))})
+		data := file[i*chunkSize : (i+1)*chunkSize]
+		err := stream.Send(&streaming_api.ProduceRequest{Point: pointId, Frame: data})
 		require.NoError(t, err)
 	}
 
@@ -321,7 +330,7 @@ func TestAgent_ParticipationRule_LoadBalancerRule_Replication(t *testing.T) {
 		}
 		require.NoError(t, err)
 		b := resp.GetFrame()
-		require.Equal(t, fmt.Sprintln(i), string(b))
+		require.Equal(t, file[i*chunkSize:(i+1)*chunkSize], b)
 	}
 	require.Equal(t, lines, i)
 
@@ -363,7 +372,7 @@ func TestAgent_ParticipationRule_LoadBalancerRule_Replication(t *testing.T) {
 			}
 			require.NoError(t, err)
 			b := resp.GetFrame()
-			require.Equal(t, fmt.Sprintln(i), string(b))
+			require.Equal(t, file[i*chunkSize:(i+1)*chunkSize], b)
 		}
 		require.Equal(t, lines, i)
 	}
@@ -388,6 +397,7 @@ func setupTestAgent(t *testing.T, count int, callBefore func(i int, agent []*Age
 			DataDir:         dataDir,
 			ACLModelFile:    ACLModelFile,
 			ACLPolicyFile:   ACLPolicyFile,
+			MaxChunkSize:    testChunkSize,
 		}
 
 		callBefore(i, agents, &config)

@@ -66,12 +66,13 @@ func (arc *Arc) appendEntries(s *Follower, key string, nextOffset uint64) {
 		arc.logger.Error("Error while synchronizing the loadbalancers", "error", err)
 	}
 	var entries []*RecordRequest
+READER:
 	for nextOffset <= lastOffset {
 		var chunk []byte
 		var tempNextOffset uint64
 		tempNextOffset, chunk, err = arc.fsm.Read(key, nextOffset)
 		if err != nil {
-			break
+			break READER
 		}
 		if len(chunk) > 0 {
 			nextOffset = tempNextOffset
@@ -83,6 +84,8 @@ func (arc *Arc) appendEntries(s *Follower, key string, nextOffset uint64) {
 			entries = append(entries, &RecordRequest{
 				Data: data,
 			})
+		} else {
+			break READER
 		}
 	}
 

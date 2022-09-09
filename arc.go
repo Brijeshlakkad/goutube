@@ -120,13 +120,17 @@ func (arc *Arc) processRPC(rpc RPC) {
 		if len(req.Entries) > 0 {
 			for _, entry := range req.Entries {
 				resp := arc.fsm.Apply(entry)
-				nextOffset = resp.StoreValue.(uint64)
+				if resp.StoreValue != nil {
+					nextOffset = resp.StoreValue.(uint64)
+				}
 			}
 		}
 		rpc.Respond(&RecordEntriesResponse{LastOff: nextOffset}, nil)
 	case *RecordRequest:
 		resp := arc.fsm.Apply(req)
-		nextOffset = resp.StoreValue.(uint64)
+		if resp.StoreValue != nil {
+			nextOffset = resp.StoreValue.(uint64)
+		}
 		rpc.Respond(&RecordResponse{LastOff: nextOffset}, nil)
 	case *GetServersRequest:
 		b, err := json.Marshal(arc.GetFollowers())

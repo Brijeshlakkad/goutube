@@ -13,8 +13,7 @@ import (
 )
 
 var (
-	testWrite   = []byte("hello world")
-	locusClient = "goutube-client"
+	testWrite = []byte("hello world")
 )
 
 func TestLocus(t *testing.T) {
@@ -36,6 +35,7 @@ func TestLocus(t *testing.T) {
 			defer os.RemoveAll(parentDir)
 
 			c := Config{}
+			c.Distributed.MaxChunkSize = uint64(len(testWrite))
 			pointcronConfig := pointcron.Config{}
 			pointcronConfig.CloseTimeout = 1 * time.Second
 			pointcronConfig.TickTime = time.Second
@@ -72,7 +72,7 @@ func testPointAppendRead(t *testing.T, locus *Locus) {
 	require.Equal(t, uint64(0), pos)
 	require.NoError(t, err)
 
-	_, b, err := locus.Read(point.pointId, 0)
+	_, b, err := locus.Read(point.pointId, 0, 0, 0)
 	require.Equal(t, b, testWrite)
 }
 
@@ -120,7 +120,7 @@ func testRemovePointer(t *testing.T, locus *Locus) {
 
 	err = locus.Remove(pId)
 
-	_, _, err = locus.Read(pId, 0)
+	_, _, err = locus.Read(pId, 0, 0, 0)
 	apiErr := err.(streaming_api.PointNotFound)
 	require.Equal(t, pId, apiErr.PointId)
 }
