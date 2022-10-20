@@ -45,6 +45,9 @@ Streaming utility to build largely-scalable, highly available, fast, and secure 
 | MaxChunkSize       | uint64                                                                           | Size of the chunk that can be processed by this server.                                                                                                                                |
 | MultiStreamPercent | int                                                                              | Percents of the number of followers to return upon GetMetadata request?                                                                                                                |
 
+### Goutube Architecture
+<img src="architecture.png"  width="100%" height="100%">
+
 ### **Can I contribute to this project?**
 
 Feel free to create a PR, I’m more than happy to review and merge it.
